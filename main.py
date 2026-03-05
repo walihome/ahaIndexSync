@@ -86,13 +86,15 @@ def process_with_ai(repo):
     URL: {repo['url']}
 
     Please provide:
-    1. A concise summary (max 50 words).
-    2. A list of Tags (categories).
-    3. A list of Keywords (technical terms).
+    1. A concise summary in Chinese (max 50 words).
+    2. A list of Tags (categories) in Chinese.
+    3. A list of Keywords (technical terms, keep original English terms).
     4. An 'Aha Index' (0.0 to 1.0) representing how innovative or surprising the project is.
-    5. Expert Insight (Markdown format, deep technical perspective).
+    5. Expert Insight in Chinese (Markdown format, deep technical perspective).
 
     Output MUST be a structured JSON with keys: summary, tags, keywords, aha_index, expert_insight.
+    All text fields (summary, tags, expert_insight) MUST be written in Chinese.
+    Keywords should keep the original English technical terms.
     """
 
     try:
