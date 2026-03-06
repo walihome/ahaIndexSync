@@ -75,16 +75,16 @@ def process_with_ai(item: RawItem) -> dict | None:
 # ── 写库 ───────────────────────────────────────────────────────
 
 def save_raw_item(item: RawItem):
-    """写入 raw_items，已存在则更新 metrics 和 updated_at"""
-    supabase.table("raw_items").upsert(
-        item.to_db_dict(),
-        on_conflict="id"
+    result = supabase.table("raw_items").upsert(
+        item.to_db_dict()
+        # ← 去掉 on_conflict 参数
     ).execute()
+    if not result.data:
+        raise Exception(f"save_raw_item 写入失败: {item.title}")
 
 
 def save_processed_item(item: RawItem, ai_data: dict):
-    """写入 processed_items，主键 (item_id, snapshot_date)"""
-    supabase.table("processed_items").upsert({
+    result = supabase.table("processed_items").upsert({
         "item_id": item.id,
         "snapshot_date": date.today().isoformat(),
         "raw_title": item.title,
@@ -102,7 +102,10 @@ def save_processed_item(item: RawItem, ai_data: dict):
         "aha_index": float(ai_data.get("aha_index", 0.5)),
         "expert_insight": ai_data.get("expert_insight"),
         "generated_at": datetime.now(timezone.utc).isoformat(),
-    }, on_conflict="item_id,snapshot_date").execute()
+        # ← 去掉 on_conflict 参数
+    }).execute()
+    if not result.data:
+        raise Exception(f"save_processed_item 写入失败: {item.title}")
 
 
 def process_and_save(items: list[RawItem], skip_ai_filter: bool = False):
