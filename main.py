@@ -14,7 +14,7 @@ load_dotenv()
 # 配置
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-GH_MODELS_TOKEN = os.getenv("GH_MODELS_TOKEN") # 既用于 AI，也用于 GitHub API 鉴权
+GH_MODELS_TOKEN = os.getenv("GH_MODELS_TOKEN")
 
 # AI 核心关键词雷达
 AI_KEYWORDS = [
@@ -37,8 +37,8 @@ def get_trending_repos():
         repos = []
         for article in soup.find_all("article", class_="Box-row"):
             title_tag = article.find("h2", class_="h3")
-            full_name = title_tag.text.strip().replace("
-", "").replace(" ", "") if title_tag else ""
+            # 修正：使用更稳健的空白字符处理方式
+            full_name = "".join(title_tag.text.split()) if title_tag else ""
             repo_url = f"https://github.com{title_tag.find('a')['href']}" if title_tag else ""
             
             desc_tag = article.find("p", class_="col-9")
@@ -49,7 +49,11 @@ def get_trending_repos():
             stars = 0
             if meta:
                 s_link = meta.find("a", href=lambda x: x and x.endswith("/stargazers"))
-                if s_link: stars = int(s_link.text.strip().replace(",", ""))
+                if s_link: 
+                    try:
+                        stars = int(s_link.text.strip().replace(",", ""))
+                    except:
+                        stars = 0
 
             repos.append({
                 "title": full_name,
@@ -70,7 +74,6 @@ def get_discovery_repos():
     headers = {"Authorization": f"token {GH_MODELS_TOKEN}"}
     base_url = "https://api.github.com/search/repositories"
     
-    # 搜索维度：1.一周内星数>100的AI项目 2.一月内星数>1000的项目
     last_week = (datetime.now() - timedelta(days=7)).date()
     last_month = (datetime.now() - timedelta(days=30)).date()
     
@@ -134,26 +137,26 @@ def process_with_ai(repo):
         return None
 
 def save_to_db(repo, ai_data):
-    """保存到 Supabase (v2.5 架构：冗余 original_url)"""
+    """保存到 Supabase"""
     if not supabase: return
     item_id = hashlib.md5(repo["url"].encode()).hexdigest()
     now = datetime.now(timezone.utc).isoformat()
 
-    # 1. Raw Layer
     try:
+        # 1. Raw Layer
         supabase.table("raw_items").upsert({
             "id": item_id, "title": repo["title"], "original_url": repo["url"],
             "source_name": "GitHub", "source_type": "REPO", "author": repo["author"],
             "raw_metrics": repo["metrics"], "published_at": now
         }).execute()
 
-        # 2. Processed Layer (增加冗余 original_url)
+        # 2. Processed Layer
         if ai_data:
             supabase.table("processed_items").upsert({
                 "item_id": item_id,
                 "raw_title": repo["title"],
                 "processed_title": ai_data.get("processed_title"),
-                "original_url": repo["url"], # 冗余 URL，方便前端跳转
+                "original_url": repo["url"],
                 "summary": ai_data.get("summary"),
                 "tags": ai_data.get("tags", []),
                 "keywords": ai_data.get("keywords", []),
@@ -168,14 +171,11 @@ def save_to_db(repo, ai_data):
 def main():
     print(f"🚀 Aha Index 侦测启动 | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     
-    # 1. 多源抓取
     trending = get_trending_repos()
     discovery = get_discovery_repos()
     
-    # 2. 合并并按 URL 去重
     combined = {repo["url"]: repo for repo in (trending + discovery)}.values()
     
-    # 3. 过滤并处理
     ai_repos = [r for r in combined if any(k.lower() in (r["title"] + " " + r["description"]).lower() for k in AI_KEYWORDS)]
     print(f"📊 总抓取: {len(combined)}, 经过 AI 关键词过滤: {len(ai_repos)}")
     
