@@ -5,7 +5,7 @@ from scrapers.github.trending import GitHubTrendingScraper
 from scrapers.github.search import GitHubSearchScraper
 from scrapers.ai_blogs.openai import OpenAIBlogScraper
 # from scrapers.ai_blogs.anthropic import AnthropicBlogScraper
-# from scrapers.news.hackernews import HackerNewsScraper
+from scrapers.news.hackernews import HackerNewsScraper
 from scrapers.db import process_and_save
 
 # 注册所有抓取器
@@ -15,7 +15,7 @@ SCRAPERS = [
     (GitHubSearchScraper(),    False),
     (OpenAIBlogScraper(),      True),
     # (AnthropicBlogScraper(),   True),
-    # (HackerNewsScraper(),      False),
+    (HackerNewsScraper(),      False),
 ]
 
 def main():
