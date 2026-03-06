@@ -24,6 +24,7 @@ def main():
 
     total_success = 0
     for scraper, skip_filter in SCRAPERS:
+        print(f"▶ 开始: {scraper.__class__.__name__}")
         name = scraper.source_name
         print(f"{'─' * 40}")
         print(f"▶ 开始: {name}")
