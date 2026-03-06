@@ -1,174 +1,194 @@
-import os
-import hashlib
-import json
-import requests
-from bs4 import BeautifulSoup
-from openai import OpenAI
-from supabase import create_client, Client
-from dotenv import load_dotenv
-from datetime import datetime
+ import os
+ import hashlib
+ import json
+ import requests
+ from bs4 import BeautifulSoup
+ from openai import OpenAI
+ from supabase import create_client, Client
+ from dotenv import load_dotenv
+ from datetime import datetime, timezone
 
-# Load environment variables
-load_dotenv()
+ # 加载环境变量
+ load_dotenv()
 
-# Configuration
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-GH_MODELS_TOKEN = os.getenv("GH_MODELS_TOKEN")
+ # 配置
+ SUPABASE_URL = os.getenv("SUPABASE_URL")
+ SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+ GH_MODELS_TOKEN = os.getenv("GH_MODELS_TOKEN")
 
-# AI Keywords
-AI_KEYWORDS = [
-    "LLM", "RAG", "Agent", "Prompt", "Transformer", "Vector Database", 
-    "Diffusion", "Fine-tuning", "Multi-modal", "Knowledge Graph", 
-    "Context Window", "Memory module"
-]
+ # 增强版 AI 关键词雷达
+ AI_KEYWORDS = [
+     "LLM", "RAG", "Agent", "Prompt", "Transformer", "Vector Database",
+     "Diffusion", "Fine-tuning", "Multi-modal", "Knowledge Graph",
+     "Context Window", "Memory module", "Semantic Kernel", "LangChain"
+ ]
 
-# Initialize Clients
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABASE_KEY else None
+ # 初始化 Supabase
+ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABASE_KEY else None
 
-def get_trending_repos():
-    """Scrape GitHub Trending (All Languages)"""
-    url = "https://github.com/trending"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    response = requests.get(url, headers=headers)
-    if response.status_code != 200:
-        print(f"Failed to fetch trending: {response.status_code}")
-        return []
+ def get_trending_repos():
+     """抓取 GitHub Trending 并提取深度指标 (Stars/Forks)"""
+     url = "https://github.com/trending"
+     headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
 
-    soup = BeautifulSoup(response.text, "html.parser")
-    repos = []
-    articles = soup.find_all("article", class_="Box-row")
-    
-    for article in articles[:25]:
-        title_tag = article.find("h2", class_="h3")
-        title = title_tag.text.strip().replace("\n", "").replace(" ", "") if title_tag else ""
-        
-        desc_tag = article.find("p", class_="col-9")
-        description = desc_tag.text.strip() if desc_tag else ""
-        
-        url_tag = title_tag.find("a") if title_tag else None
-        repo_url = f"https://github.com{url_tag['href']}" if url_tag else ""
-        
-        author = title.split("/")[0] if "/" in title else ""
-        
-        repos.append({
-            "title": title,
-            "description": description,
-            "url": repo_url,
-            "author": author
-        })
-    return repos
+     try:
+         response = requests.get(url, headers=headers, timeout=15)
+         response.raise_for_status()
+     except Exception as e:
+         print(f"❌ 抓取失败: {e}")
+         return []
 
-def filter_ai_repos(repos):
-    """Filter repos based on AI keywords"""
-    filtered = []
-    for repo in repos:
-        content = (repo["title"] + " " + repo["description"]).lower()
-        if any(keyword.lower() in content for keyword in AI_KEYWORDS):
-            filtered.append(repo)
-    return filtered
+     soup = BeautifulSoup(response.text, "html.parser")
+     repos = []
 
-def process_with_ai(repo):
-    """Process repo info with GitHub Models (GPT-4o-mini)"""
-    if not GH_MODELS_TOKEN:
-        print("GH_MODELS_TOKEN not found, skipping AI processing.")
-        return None
+     for article in soup.find_all("article", class_="Box-row"):
+         # 1. 基础信息
+         title_tag = article.find("h2", class_="h3")
+         full_name = title_tag.text.strip().replace("\n", "").replace(" ", "") if title_tag else ""
+         repo_url = f"https://github.com{title_tag.find('a')['href']}" if title_tag and title_tag.find('a') else ""
 
-    client = OpenAI(
-        base_url="https://models.inference.ai.azure.com",
-        api_key=GH_MODELS_TOKEN,
-    )
+         # 2. 描述
+         desc_tag = article.find("p", class_="col-9")
+         description = desc_tag.text.strip() if desc_tag else ""
 
-    prompt = f"""
-    Analyze the following GitHub repository:
-    Title: {repo['title']}
-    Description: {repo['description']}
-    URL: {repo['url']}
+         # 3. 抓取指标 (Metrics)
+         meta_data = article.find("div", class_="f6 color-fg-muted mt-2")
+         stars = 0
+         forks = 0
+         stars_today = 0
 
-    Please provide:
-    1. A concise summary in Chinese (max 50 words).
-    2. A list of Tags (categories) in Chinese.
-    3. A list of Keywords (technical terms, keep original English terms).
-    4. An 'Aha Index' (0.0 to 1.0) representing how innovative or surprising the project is.
-    5. Expert Insight in Chinese (Markdown format, deep technical perspective).
+         if meta_data:
+             # 查找 Stars
+             star_link = meta_data.find("a", href=lambda x: x and x.endswith("/stargazers"))
+             if star_link:
+                 stars = int(star_link.text.strip().replace(",", ""))
 
-    Output MUST be a structured JSON with keys: summary, tags, keywords, aha_index, expert_insight.
-    All text fields (summary, tags, expert_insight) MUST be written in Chinese.
-    Keywords should keep the original English technical terms.
-    """
+             # 查找 Forks
+             fork_link = meta_data.find("a", href=lambda x: x and x.endswith("/forks"))
+             if fork_link:
+                 forks = int(fork_link.text.strip().replace(",", ""))
 
-    try:
-        response = client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": "You are a senior AI engineer summarizing technical projects."},
-                {"role": "user", "content": prompt}
-            ],
-            model="gpt-4o-mini",
-            response_format={"type": "json_object"}
-        )
-        return json.loads(response.choices[0].message.content)
-    except Exception as e:
-        print(f"AI processing error for {repo['title']}: {e}")
-        return None
+             # 查找今日增长
+             today_span = meta_data.find("span", class_="d-inline-block float-sm-right")
+             if today_span:
+                 stars_today = int(today_span.text.strip().split()[0].replace(",", ""))
 
-def save_to_db(repo, ai_data):
-    """Save raw and processed data to Supabase"""
-    if not supabase:
-        print("Supabase client not initialized, skipping DB save.")
-        return
+         repos.append({
+             "title": full_name,
+             "description": description,
+             "url": repo_url,
+             "author": full_name.split("/")[0] if "/" in full_name else "",
+             "metrics": {
+                 "stars": stars,
+                 "forks": forks,
+                 "stars_today": stars_today
+             }
+         })
+     return repos
 
-    # Calculate MD5 ID
-    item_id = hashlib.md5(repo["url"].encode()).hexdigest()
+ def filter_ai_repos(repos):
+     """基于关键词过滤 AI 相关项目"""
+     return [
+         r for r in repos
+         if any(k.lower() in (r["title"] + " " + r["description"]).lower() for k in AI_KEYWORDS)
+     ]
 
-    # 1. Upsert into raw_items
-    raw_item = {
-        "id": item_id,
-        "title": repo["title"],
-        "original_url": repo["url"],
-        "source_name": "GitHub",
-        "source_type": "REPO",
-        "author": repo["author"],
-        "published_at": datetime.utcnow().isoformat()
-    }
-    
-    try:
-        supabase.table("raw_items").upsert(raw_item).execute()
-        print(f"Saved raw_item: {repo['title']}")
-    except Exception as e:
-        print(f"Error saving raw_item {repo['title']}: {e}")
-        return
+ def process_with_ai(repo):
+     """使用 GitHub Models (GPT-4o-mini) 进行深度加工"""
+     if not GH_MODELS_TOKEN:
+         return None
 
-    # 2. Upsert into processed_items
-    if ai_data:
-        processed_item = {
-            "item_id": item_id,
-            "summary": ai_data.get("summary"),
-            "tags": ai_data.get("tags", []),
-            "keywords": ai_data.get("keywords", []),
-            "aha_index": float(ai_data.get("aha_index", 0.5)),
-            "expert_insight": ai_data.get("expert_insight"),
-            "updated_at": datetime.utcnow().isoformat()
-        }
-        try:
-            supabase.table("processed_items").upsert(processed_item).execute()
-            print(f"Saved processed_item: {repo['title']}")
-        except Exception as e:
-            print(f"Error saving processed_item {repo['title']}: {e}")
+     client = OpenAI(base_url="https://models.inference.ai.azure.com", api_key=GH_MODELS_TOKEN)
 
-def main():
-    print("Starting GitHub AI discovery...")
-    all_repos = get_trending_repos()
-    print(f"Fetched {len(all_repos)} trending repos.")
-    
-    ai_repos = filter_ai_repos(all_repos)
-    print(f"Filtered {len(ai_repos)} AI-related repos.")
-    
-    for repo in ai_repos:
-        print(f"Processing {repo['title']}...")
-        ai_data = process_with_ai(repo)
-        save_to_db(repo, ai_data)
-    
-    print("Discovery complete.")
+     # 完善 Prompt，要求生成双标题和高含金量洞察
+     prompt = f"""
+     作为一名顶尖 AI 架构师，分析以下 GitHub 项目并生成中文简报：
+     项目名称: {repo['title']}
+     项目描述: {repo['description']}
+     热度数据: {repo['metrics']['stars_today']} stars added today, total {repo['metrics']['stars']} stars.
 
-if __name__ == "__main__":
-    main()
+     请输出结构化 JSON (严格遵守以下字段):
+     {{
+       "processed_title": "一个极其抓人眼球、体现技术突破的中文短标题",
+       "summary": "一句话核心功能摘要 (中肯、专业、50字内)",
+       "tags": ["领域标签(如: RAG, 自动化)", "成熟度(如: SOTA, 实验性)"],
+       "keywords": ["英文技术关键词1", "关键词2"],
+       "aha_index": 0.0到1.0的评分 (0.9以上代表突破性发现),
+       "expert_insight": "### 🚀 专家点评 \\n 从技术底层分析其价值... \\n ### 🛠️ 核心干货 \\n - 关键点1 \\n - 关键点2"
+     }}
+     """
+
+     try:
+         response = client.chat.completions.create(
+             messages=[
+                 {"role": "system", "content": "你只输出 JSON。你是技术嗅觉极其敏锐的 AI 专家。"},
+                 {"role": "user", "content": prompt}
+             ],
+             model="gpt-4o-mini",
+             response_format={"type": "json_object"}
+         )
+         return json.loads(response.choices[0].message.content)
+     except Exception as e:
+         print(f"⚠️ AI 总结失败 ({repo['title']}): {e}")
+         return None
+
+ def save_to_db(repo, ai_data):
+     """根据 v2.4 架构保存数据 (支持 raw_metrics 和 冗余 raw_title)"""
+     if not supabase: return
+
+     # 使用 URL MD5 作为唯一 ID
+     item_id = hashlib.md5(repo["url"].encode()).hexdigest()
+     now = datetime.now(timezone.utc).isoformat()
+
+     # 1. 写入 raw_items (原材料层)
+     raw_item = {
+         "id": item_id,
+         "title": repo["title"], # 客观标题
+         "original_url": repo["url"],
+         "source_name": "GitHub",
+         "source_type": "REPO",
+         "author": repo["author"],
+         "raw_metrics": repo["metrics"], # 存储 Stars/Forks JSON
+         "published_at": now
+     }
+
+     try:
+         supabase.table("raw_items").upsert(raw_item).execute()
+     except Exception as e:
+         print(f"❌ raw_items 写入错误: {e}")
+         return
+
+     # 2. 写入 processed_items (加工层)
+     if ai_data:
+         processed_item = {
+             "item_id": item_id,
+             "raw_title": repo["title"],       # 冗余存储，方便单表查询
+             "processed_title": ai_data.get("processed_title"), # AI 生成的惊艳标题
+             "summary": ai_data.get("summary"),
+             "tags": ai_data.get("tags", []),
+             "keywords": ai_data.get("keywords", []),
+             "aha_index": float(ai_data.get("aha_index", 0.5)),
+             "expert_insight": ai_data.get("expert_insight"),
+             "updated_at": now
+         }
+         try:
+             supabase.table("processed_items").upsert(processed_item).execute()
+             print(f"✅ 已成功加工并入库: {repo['title']} (Aha: {processed_item['aha_index']})")
+         except Exception as e:
+             print(f"❌ processed_items 写入错误: {e}")
+
+ def main():
+     print(f"🚀 Aha Index 侦测启动 | 时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+     all_repos = get_trending_repos()
+     ai_repos = filter_ai_repos(all_repos)
+     print(f"📊 发现 {len(all_repos)} 个趋势项目，其中 {len(ai_repos)} 个符合 AI 过滤标准。")
+
+     for repo in ai_repos:
+         ai_data = process_with_ai(repo)
+         save_to_db(repo, ai_data)
+
+     print("✨ 任务完成。")
+
+ if __name__ == "__main__":
+     main()
