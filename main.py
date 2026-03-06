@@ -14,8 +14,8 @@ SCRAPERS = [
     (GitHubTrendingScraper(),  False),
     (GitHubSearchScraper(),    False),
     (OpenAIBlogScraper(),      True),
-    (AnthropicBlogScraper(),   True),
-    (HackerNewsScraper(),      False),
+    # (AnthropicBlogScraper(),   True),
+    # (HackerNewsScraper(),      False),
 ]
 
 def main():
