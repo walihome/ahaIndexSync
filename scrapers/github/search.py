@@ -25,14 +25,10 @@ class GitHubSearchScraper(BaseScraper):
         last_week = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
 
         queries = [
-            # 严格：昨天 0 点之后新建，star > 100
-            (f"created:>={yesterday} stars:>100 topic:ai",           "昨天新建 AI topic"),
-            (f"created:>={yesterday} stars:>100 topic:llm",          "昨天新建 LLM topic"),
-            (f"created:>={yesterday} stars:>100 LLM in:name,description", "昨天新建 LLM 关键词"),
             # 宽松：过去一周内，star > 200
-            (f"created:>={last_week} stars:>200 topic:ai",           "一周内 AI topic"),
-            (f"created:>={last_week} stars:>200 topic:llm",          "一周内 LLM topic"),
-            (f"created:>={last_week} stars:>200 LLM in:name,description", "一周内 LLM 关键词"),
+            (f"created:>={last_week} stars:>100 topic:ai",           "一周内 AI topic"),
+            (f"created:>={last_week} stars:>100 topic:llm",          "一周内 LLM topic"),
+            (f"created:>={last_week} stars:>100 LLM in:name,description", "一周内 LLM 关键词"),
         ]
 
         seen, items = set(), []
