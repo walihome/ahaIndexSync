@@ -2,7 +2,7 @@ name: Daily AI Briefing
 
 on:
   schedule:
-    - cron: '0 4 * * *' # 4:00 AM UTC daily
+    - cron: '0 18 * * *'  # 北京时间凌晨 2:00 (UTC+8)
   workflow_dispatch: # Allow manual trigger
 
 jobs:
