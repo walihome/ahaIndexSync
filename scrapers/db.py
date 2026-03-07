@@ -7,6 +7,7 @@ from openai import OpenAI
 from supabase import create_client, Client
 from dotenv import load_dotenv
 from .base import RawItem
+from .displayMetrics import DISPLAY_METRICS_CONFIG
 
 load_dotenv()
 
@@ -28,6 +29,7 @@ AI_KEYWORDS = [
 def is_ai_related(item: RawItem) -> bool:
     text = f"{item.title} {item.body_text}".lower()
     return any(k.lower() in text for k in AI_KEYWORDS)
+
 
 
 # ── AI 加工 ────────────────────────────────────────────────────
@@ -72,6 +74,38 @@ def process_with_ai(item: RawItem) -> dict | None:
         return None
 
 
+# ── 新增函数 build_display_metrics（写库函数之前）──
+def build_display_metrics(item: RawItem) -> dict:
+    """根据 content_type 配置，从 raw_metrics / extra 组装前端展示字段"""
+    config = DISPLAY_METRICS_CONFIG.get(item.content_type, [])
+    # 合并所有可能的数据来源，extra 优先级低于 raw_metrics
+    data = {
+        **item.extra,
+        **item.raw_metrics,
+        # 把 item 本身的字段也纳入，方便取 published_at / source_name
+        "published_at": item.published_at.isoformat() if item.published_at else None,
+        "source_name":  item.source_name,
+    }
+    result = []
+    for field in config:
+        key = field["key"]
+        fmt = field["format"]
+        val = data.get(key)
+        if val is None:
+            continue
+        if fmt == "number":
+            display = f"{int(val):,}"
+        elif fmt == "days_ago":
+            created = datetime.fromisoformat(str(val).replace("Z", "+00:00"))
+            days = (datetime.now(timezone.utc) - created).days
+            display = "今天" if days == 0 else f"{days} 天前"
+        elif fmt == "date":
+            display = str(val)[:10].replace("-", "/")
+        else:
+            display = str(val)
+        result.append({"label": field["label"], "value": display})
+    return {"items": result}
+    
 # ── 写库 ───────────────────────────────────────────────────────
 
 def save_raw_item(item: RawItem):
@@ -102,6 +136,7 @@ def save_processed_item(item: RawItem, ai_data: dict):
         "aha_index": float(ai_data.get("aha_index", 0.5)),
         "expert_insight": ai_data.get("expert_insight"),
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "display_metrics":  build_display_metrics(item),
         # ← 去掉 on_conflict 参数
     }).execute()
     if not result.data:
