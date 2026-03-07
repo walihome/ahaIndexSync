@@ -44,6 +44,7 @@ def process_with_ai(item: RawItem) -> dict | None:
     prompt = f"""
     作为技术嗅觉敏锐的 AI 专家，分析以下内容并生成中文简报：
     来源: {item.source_name}
+    来源类型: {item.extra.get('source_tag', '')}
     标题: {item.title}
     内容: {item.body_text[:500] if item.body_text else "无"}
     热度指标: {json.dumps(item.raw_metrics, ensure_ascii=False)}
