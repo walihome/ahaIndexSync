@@ -14,7 +14,6 @@ DISPLAY_METRICS_CONFIG = {
 
     "repo": [
         {"label": "⭐ Stars",  "key": "stars",      "format": "number"},
-        {"label": "Forks",  "key": "forks",      "format": "number"},
         {"label": "📅 创建",   "key": "created_at", "format": "days_ago"},
     ],
 
