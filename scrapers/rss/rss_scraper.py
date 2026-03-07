@@ -4,7 +4,7 @@ import re
 import feedparser
 from datetime import datetime, timezone, timedelta
 from ..base import BaseScraper, RawItem
-from .rss_feeds_config import RSS_FEEDS, FETCH_WINDOW_HOURS
+from .rss_config import RSS_FEEDS, FETCH_WINDOW_HOURS
 
 
 def _parse_date(entry) -> datetime | None:
