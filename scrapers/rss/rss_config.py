@@ -92,49 +92,31 @@ RSS_FEEDS = [
     # ── AI 研究/学术（天然相关，跳过过滤）───────────────────
     {
         # 每日精选 AI 论文，Huggingface 社区投票，质量极高
+        # 官方无 RSS，使用第三方 GitHub Actions 生成的 feed（每日更新）
         "name": "Huggingface Daily Papers",
-        "url": "https://rsshub.app/huggingface/daily-papers",
+        "url": "https://raw.githubusercontent.com/huangboming/huggingface-daily-paper-feed/refs/heads/main/feed.xml",
         "max_items": 5,
         "skip_ai_filter": True,
         "source_tag": "ai_research",
     },
-    {
-        "name": "Huggingface 中文博客",
-        "url": "https://rsshub.app/huggingface/blog-zh",
-        "max_items": 3,
-        "skip_ai_filter": True,
-        "source_tag": "ai_research",
-    },
-    {
-        # 吴恩达团队 AI 周报，每周一期
-        "name": "deeplearning.ai TheBatch",
-        "url": "https://rsshub.app/deeplearning/thebatch",
-        "max_items": 3,
-        "skip_ai_filter": True,
-        "source_tag": "ai_research",
-    },
-    {
-        # 国内顶级 AI 研究院，智源社区活动/论文动态
-        "name": "北京智源 BAAI",
-        "url": "https://rsshub.app/baai/hub/events",
-        "max_items": 2,
-        "skip_ai_filter": False,
-        "source_tag": "ai_research",
-    },
+    # Huggingface 中文博客：官方无 RSS，暂无稳定源，已移除
+    # deeplearning.ai TheBatch：官方无 RSS，暂无稳定源，已移除
+    # 北京智源 BAAI：官方无对外 RSS，已移除
 
     # ── 工程领域大变更────────────────────────────────────────
     {
         # 云原生/容器领域，K8s、Service Mesh、eBPF 等范式变化
         "name": "CNCF Blog",
-        "url": "https://rsshub.app/cncf/blog",
+        "url": "https://www.cncf.io/feed/",
         "max_items": 2,
         "skip_ai_filter": False,
         "source_tag": "engineering",
     },
     {
-        # Google 工程博客，Web 性能/标准/浏览器 API 重大变化
-        "name": "web.dev",
-        "url": "https://rsshub.app/web/blog",
+        # Google Chrome 工程博客，Web 性能/标准/浏览器 API 重大变化
+        # web.dev 已迁移至 developer.chrome.com
+        "name": "Chrome Developers Blog",
+        "url": "https://developer.chrome.com/static/blog/feed.xml",
         "max_items": 2,
         "skip_ai_filter": False,
         "source_tag": "engineering",
