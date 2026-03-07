@@ -75,13 +75,6 @@ RSS_FEEDS = [
         "skip_ai_filter": False,
         "source_tag": "tech_media",
     },
-    {
-        "name": "IT之家",
-        "url": "https://www.ithome.com/rss/",
-        "max_items": 2,
-        "skip_ai_filter": False,
-        "source_tag": "tech_media",
-    },
 
     # ── 消费科技（标准更严，最多 1 条）──────────────────────
     {
@@ -96,7 +89,7 @@ RSS_FEEDS = [
     {
         "name": "V2EX",
         "url": "https://v2ex.com/index.xml",
-        "max_items": 2,
+        "max_items": 5,
         "skip_ai_filter": False,
         "source_tag": "dev_community",
     },
