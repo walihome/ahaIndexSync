@@ -4,8 +4,9 @@ from datetime import datetime
 from scrapers.github.trending import GitHubTrendingScraper
 from scrapers.github.search import GitHubSearchScraper
 from scrapers.ai_blogs.openai import OpenAIBlogScraper
-# from scrapers.ai_blogs.anthropic import AnthropicBlogScraper
+from scrapers.ai_blogs.anthropic import AnthropicBlogScraper
 from scrapers.news.hackernews import HackerNewsScraper
+from scrapers.social.twitter import TwitterScraper
 from scrapers.db import process_and_save
 
 # 注册所有抓取器
@@ -14,32 +15,48 @@ SCRAPERS = [
     (GitHubTrendingScraper(),  False),
     (GitHubSearchScraper(),    False),
     (OpenAIBlogScraper(),      True),
-    # (AnthropicBlogScraper(),   True),
+    (AnthropicBlogScraper(),   True),
     (HackerNewsScraper(),      False),
+    (TwitterScraper(),         False),
 ]
 
+
 def main():
-    print(f"\n🚀 每日情报抓取启动 | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+    start_time = datetime.now()
+    print(f"\n🚀 每日情报抓取启动 | {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"📋 共 {len(SCRAPERS)} 个抓取器\n")
 
-    total_success = 0
+    results = []  # (name, success, cost_seconds, error)
+
     for scraper, skip_filter in SCRAPERS:
-        print(f"▶ 开始: {scraper.__class__.__name__}")
-        name = scraper.source_name
+        name = scraper.__class__.__name__
         print(f"{'─' * 40}")
-        print(f"▶ 开始: {name}")
+        print(f"▶ {name}")
+        t0 = datetime.now()
         try:
             items = scraper.fetch()
             print(f"  抓取到 {len(items)} 条原始数据")
             process_and_save(items, skip_ai_filter=skip_filter)
-            total_success += 1
+            cost = (datetime.now() - t0).seconds
+            results.append((name, True, cost, None))
         except Exception as e:
-            # 单个抓取器失败不影响其他的继续跑
-            print(f"  ❌ {name} 整体失败: {e}")
+            cost = (datetime.now() - t0).seconds
+            results.append((name, False, cost, str(e)))
+            print(f"  ❌ 失败: {e}")
 
-    print(f"\n{'─' * 40}")
-    print(f"✨ 完成 | 成功 {total_success}/{len(SCRAPERS)} 个抓取器")
+    # 汇总
+    total_cost = (datetime.now() - start_time).seconds
+    success_count = sum(1 for _, ok, _, _ in results if ok)
+    print(f"\n{'═' * 40}")
+    print(f"✨ 完成 | {success_count}/{len(SCRAPERS)} 成功 | 总耗时 {total_cost}s")
+    print(f"{'─' * 40}")
+    for name, ok, cost, err in results:
+        status = "✅" if ok else "❌"
+        detail = f"{cost}s" if ok else f"{cost}s | {err}"
+        print(f"  {status} {name:<30} {detail}")
+    print(f"{'─' * 40}")
     print(f"   结束时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+
 
 if __name__ == "__main__":
     main()
