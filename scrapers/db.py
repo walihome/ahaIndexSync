@@ -16,7 +16,7 @@ supabase: Client = create_client(
     os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 )
 
-GH_MODELS_TOKEN = os.getenv("GH_MODELS_TOKEN")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 # ── AI 关键词过滤 ──────────────────────────────────────────────
 
@@ -31,15 +31,14 @@ def is_ai_related(item: RawItem) -> bool:
     return any(k.lower() in text for k in AI_KEYWORDS)
 
 
-
 # ── AI 加工 ────────────────────────────────────────────────────
 
 def process_with_ai(item: RawItem) -> dict | None:
-    if not GH_MODELS_TOKEN:
+    if not GEMINI_API_KEY:
         return None
     client = OpenAI(
-        base_url="https://models.inference.ai.azure.com",
-        api_key=GH_MODELS_TOKEN
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+        api_key=GEMINI_API_KEY
     )
     prompt = f"""
     作为技术嗅觉敏锐的 AI 专家，分析以下内容并生成中文简报：
@@ -66,7 +65,7 @@ def process_with_ai(item: RawItem) -> dict | None:
                 {"role": "system", "content": "You only output JSON."},
                 {"role": "user", "content": prompt}
             ],
-            model="gpt-4o-mini",
+            model="gemini-2.0-flash",
             response_format={"type": "json_object"}
         )
         return json.loads(response.choices[0].message.content)
@@ -75,15 +74,14 @@ def process_with_ai(item: RawItem) -> dict | None:
         return None
 
 
-# ── 新增函数 build_display_metrics（写库函数之前）──
+# ── build_display_metrics ──────────────────────────────────────
+
 def build_display_metrics(item: RawItem) -> dict:
     """根据 content_type 配置，从 raw_metrics / extra 组装前端展示字段"""
     config = DISPLAY_METRICS_CONFIG.get(item.content_type, [])
-    # 合并所有可能的数据来源，extra 优先级低于 raw_metrics
     data = {
         **item.extra,
         **item.raw_metrics,
-        # 把 item 本身的字段也纳入，方便取 published_at / source_name
         "published_at": item.published_at.isoformat() if item.published_at else None,
         "source_name":  item.source_name,
     }
@@ -106,13 +104,13 @@ def build_display_metrics(item: RawItem) -> dict:
             display = str(val)
         result.append({"label": field["label"], "value": display})
     return {"items": result}
-    
+
+
 # ── 写库 ───────────────────────────────────────────────────────
 
 def save_raw_item(item: RawItem):
     result = supabase.table("raw_items").upsert(
         item.to_db_dict()
-        # ← 去掉 on_conflict 参数
     ).execute()
     if not result.data:
         raise Exception(f"save_raw_item 写入失败: {item.title}")
@@ -128,7 +126,7 @@ def save_processed_item(item: RawItem, ai_data: dict):
         "content_type": item.content_type,
         "author": item.author,
         "raw_metrics": item.raw_metrics,
-        "model": "gpt-4o-mini",
+        "model": "gemini-2.0-flash",
         "processed_title": ai_data.get("processed_title"),
         "summary": ai_data.get("summary"),
         "category": ai_data.get("category"),
@@ -137,8 +135,7 @@ def save_processed_item(item: RawItem, ai_data: dict):
         "aha_index": float(ai_data.get("aha_index", 0.5)),
         "expert_insight": ai_data.get("expert_insight"),
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "display_metrics":  build_display_metrics(item),
-        # ← 去掉 on_conflict 参数
+        "display_metrics": build_display_metrics(item),
     }).execute()
     if not result.data:
         raise Exception(f"save_processed_item 写入失败: {item.title}")
