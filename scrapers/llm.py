@@ -5,16 +5,16 @@ import json
 from openai import OpenAI
 from .base import RawItem
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-MODEL = "llama-3.3-70b-versatile"
+KIMI_API_KEY = os.getenv("KIMI_API_KEY")
+MODEL = "moonshot-v1-8k"
 
 
 def process_with_ai(item: RawItem) -> dict | None:
-    if not GROQ_API_KEY:
+    if not KIMI_API_KEY:
         return None
     client = OpenAI(
-        base_url="https://api.groq.com/openai/v1",
-        api_key=GROQ_API_KEY
+        base_url="https://api.moonshot.cn/v1",
+        api_key=KIMI_API_KEY
     )
     prompt = f"""
 你是一个 AI 技术日报的资深编辑，风格参考 TLDR Newsletter：信息密度高、直击重点、让读者 5 秒内判断是否值得深读。
@@ -37,7 +37,7 @@ processed_title:
   - 坏的例子："关于大型语言模型的工具"、"AI 代理新框架介绍"
 
 summary:
-  - 2句话，不超过60字
+  - 2句话，不超过100字
   - 第1句：这是什么/做了什么（事实）
   - 第2句：为什么值得关注/对读者有什么用（价值）
   - 不要重复标题，不要说废话如"这是一个..."
