@@ -1,9 +1,10 @@
 # scrapers/rss/rss_scraper.py
 
+import re
 import feedparser
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from ..base import BaseScraper, RawItem
-from .rss_feeds_config import RSS_FEEDS
+from .rss_feeds_config import RSS_FEEDS, FETCH_WINDOW_HOURS
 
 
 def _parse_date(entry) -> datetime | None:
@@ -25,14 +26,11 @@ def _build_raw_item(entry, feed_cfg: dict) -> RawItem | None:
     if not title or not url:
         return None
 
-    # 摘要：summary > description > 空
     body_text = (
         getattr(entry, "summary", "")
         or getattr(entry, "description", "")
         or ""
     ).strip()
-    # 去掉 HTML 标签（简单处理）
-    import re
     body_text = re.sub(r"<[^>]+>", "", body_text).strip()
 
     author = (getattr(entry, "author", "") or "").strip()
@@ -45,7 +43,7 @@ def _build_raw_item(entry, feed_cfg: dict) -> RawItem | None:
         source_type="ARTICLE",
         content_type="article",
         author=author,
-        body_text=body_text[:1000],  # 截断，避免 token 爆炸
+        body_text=body_text[:1000],
         raw_metrics={},
         extra={
             "source_tag": feed_cfg["source_tag"],
@@ -58,19 +56,14 @@ def _build_raw_item(entry, feed_cfg: dict) -> RawItem | None:
 class RSSFeedScraper(BaseScraper):
     """
     通用 RSS 抓取器，所有配置来自 rss_feeds_config.py
-    每个 feed 独立控制 max_items / skip_ai_filter / source_tag
+    流程：先按时间窗口过滤，再按 max_items 限量
     """
 
     def fetch(self) -> list[RawItem]:
-        # 这里返回所有 feed 的原始数据，不做 skip_ai_filter
-        # skip_ai_filter 在 fetch_all() 里按 feed 单独处理
-        raise NotImplementedError("请直接调用 fetch_and_save()")
+        raise NotImplementedError("请直接调用 fetch_all()")
 
     def fetch_all(self) -> list[tuple[RawItem, bool]]:
-        """
-        返回 (RawItem, skip_ai_filter) 的列表
-        由 main.py 解包后分别调用 process_and_save
-        """
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=FETCH_WINDOW_HOURS)
         results = []
 
         for feed_cfg in RSS_FEEDS:
@@ -86,17 +79,30 @@ class RSSFeedScraper(BaseScraper):
                     print(f"  ⚠️ [{name}] RSS 解析失败: {parsed.bozo_exception}")
                     continue
 
-                entries = parsed.entries
-                if max_items is not None:
-                    entries = entries[:max_items]
-
                 items = []
-                for entry in entries:
-                    item = _build_raw_item(entry, feed_cfg)
-                    if item:
-                        items.append(item)
+                skipped_old = 0
 
-                print(f"  [{name}] 获取 {len(items)} 条 (max={max_items}, skip_filter={skip_ai_filter})")
+                for entry in parsed.entries:
+                    item = _build_raw_item(entry, feed_cfg)
+                    if not item:
+                        continue
+
+                    # ① 先过滤时间窗口
+                    # 无时间字段的直接放行，宁可多抓不漏
+                    if item.published_at and item.published_at < cutoff:
+                        skipped_old += 1
+                        continue
+
+                    items.append(item)
+
+                    # ② 时间过滤后再限量
+                    if max_items is not None and len(items) >= max_items:
+                        break
+
+                print(
+                    f"  [{name}] 保留 {len(items)} 条"
+                    + (f"，跳过 {skipped_old} 条过期" if skipped_old else "")
+                )
                 results.extend([(item, skip_ai_filter) for item in items])
 
             except Exception as e:
