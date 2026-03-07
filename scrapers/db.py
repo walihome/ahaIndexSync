@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from .base import RawItem
 from .displayMetrics import DISPLAY_METRICS_CONFIG
 from .llm import process_with_ai
+from .content_fetcher import enrich_body_text
 
 load_dotenv()
 
@@ -105,6 +106,8 @@ def process_and_save(items: list[RawItem], skip_ai_filter: bool = False):
 
     for item in filtered:
         try:
+            # 先补充正文，再做 AI 分析
+            item.body_text = enrich_body_text(item)
             save_raw_item(item)
             ai_data = process_with_ai(item)
             if ai_data:
