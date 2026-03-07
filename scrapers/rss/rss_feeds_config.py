@@ -94,4 +94,49 @@ RSS_FEEDS = [
         "source_tag": "dev_community",
     },
 
+    # ── 学术期刊（via RSSHub，天然 AI 相关跳过过滤）──────────
+    {
+        # Google Scholar 关键词监控 - LLM / Agent
+        # 反爬较严，不稳定时可注释掉
+        "name": "Google Scholar · LLM Agent",
+        "url": "https://rsshub.app/google/scholar/LLM+agent",
+        "max_items": 3,
+        "skip_ai_filter": True,
+        "source_tag": "ai_research",
+    },
+    {
+        # Google Scholar 关键词监控 - Diffusion / Multimodal
+        "name": "Google Scholar · Diffusion Multimodal",
+        "url": "https://rsshub.app/google/scholar/diffusion+multimodal",
+        "max_items": 3,
+        "skip_ai_filter": True,
+        "source_tag": "ai_research",
+    },
+    {
+        # IEEE Xplore - Transactions on Neural Networks and Learning Systems
+        # journal id 5962385 对应 TNNLS，顶级 AI 期刊
+        "name": "IEEE TNNLS Early Access",
+        "url": "https://rsshub.app/ieee/journal/5962385/earlyaccess",
+        "max_items": 3,
+        "skip_ai_filter": True,
+        "source_tag": "ai_research",
+    },
+    {
+        # IEEE Xplore - Transactions on Pattern Analysis and Machine Intelligence
+        # journal id 34 对应 TPAMI，CV/ML 顶刊
+        "name": "IEEE TPAMI Early Access",
+        "url": "https://rsshub.app/ieee/journal/34/earlyaccess",
+        "max_items": 3,
+        "skip_ai_filter": True,
+        "source_tag": "ai_research",
+    },
+    {
+        # Nature Machine Intelligence
+        "name": "Nature Machine Intelligence",
+        "url": "https://rsshub.app/nature/natmachintell",
+        "max_items": 3,
+        "skip_ai_filter": True,
+        "source_tag": "ai_research",
+    },
+
 ]
