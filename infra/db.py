@@ -26,7 +26,7 @@ def upsert_raw_item(item: RawItem) -> None:
 
 def upsert_processed_item(item: RawItem, ai_data: dict, display_metrics: dict) -> None:
     result = supabase.table("processed_items").upsert({
-        "raw_id": item.id,
+        "item_id": item.id,
         "snapshot_date": date.today().isoformat(),
         "raw_title": item.title,
         "original_url": item.original_url,
@@ -68,10 +68,10 @@ def get_pending_items() -> list[RawItem]:
     )
 
     processed_raw_ids = {
-        r["raw_id"]
+        r["item_id"]
         for r in supabase.table("processed_items")
-        .select("raw_id")
-        .gte("created_at", start.isoformat())
+        .select("item_id")
+        .eq("snapshot_date", date.today().isoformat())
         .execute()
         .data
     }
