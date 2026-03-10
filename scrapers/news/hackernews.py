@@ -1,17 +1,19 @@
+# scrapers/news/hackernews.py
+
 import requests
 from datetime import datetime, timezone
-from scrapers.base import BaseScraper, RawItem
+from infra.models import BaseScraper, RawItem
+from config.tracked_keywords import TRACKED_KEYWORDS
 
-# HackerNews 官方 Firebase API，稳定免费无需鉴权
 HN_API = "https://hacker-news.firebaseio.com/v0"
+HN_SEARCH_API = "https://hn.algolia.com/api/v1/search"
 TOP_STORIES_URL = f"{HN_API}/topstories.json"
 ITEM_URL = f"{HN_API}/item/{{item_id}}.json"
 HN_ITEM_PAGE = "https://news.ycombinator.com/item?id={item_id}"
 
-# 每次抓取 Top N 条（太多会慢，建议 50~100）
 TOP_N = 60
-# 最低分数过滤，减少噪音
 MIN_SCORE = 50
+SEARCH_PER_KEYWORD = 3   # 每个关键词从 HN 搜索取几条
 
 
 class HackerNewsScraper(BaseScraper):
@@ -20,66 +22,89 @@ class HackerNewsScraper(BaseScraper):
     content_type = "article"
 
     def fetch(self) -> list[RawItem]:
+        seen = set()
         items = []
+
+        # ── 1. Top Stories ────────────────────────────────────
         try:
             resp = requests.get(TOP_STORIES_URL, timeout=15)
             resp.raise_for_status()
             story_ids = resp.json()[:TOP_N]
+
+            for story_id in story_ids:
+                item = self._fetch_story(story_id, seen)
+                if item:
+                    items.append(item)
         except Exception as e:
-            print(f"[HackerNewsScraper] Failed to fetch top stories: {e}")
-            return items
+            print(f"⚠️ HN Top Stories 失败: {e}")
 
-        for story_id in story_ids:
+        # ── 2. 关键词搜索（Algolia API）───────────────────────
+        for kw in TRACKED_KEYWORDS:
             try:
-                r = requests.get(ITEM_URL.format(item_id=story_id), timeout=10)
-                r.raise_for_status()
-                story = r.json()
-
-                if not story or story.get("type") != "story":
-                    continue
-                if story.get("dead") or story.get("deleted"):
-                    continue
-
-                score = story.get("score", 0)
-                if score < MIN_SCORE:
-                    continue
-
-                title = story.get("title", "").strip()
-                if not title:
-                    continue
-
-                # 外链优先，无外链则指向 HN 讨论页
-                original_url = story.get("url") or HN_ITEM_PAGE.format(item_id=story_id)
-
-                author = story.get("by", "")
-                comment_count = story.get("descendants", 0)
-                timestamp = story.get("time")
-                published_at = (
-                    datetime.fromtimestamp(timestamp, tz=timezone.utc)
-                    if timestamp else None
-                )
-
-                items.append(RawItem(
-                    title=title,
-                    original_url=original_url,
-                    source_name=self.source_name,
-                    source_type=self.source_type,
-                    content_type=self.content_type,
-                    author=author,
-                    author_url=f"https://news.ycombinator.com/user?id={author}" if author else "",
-                    body_text="",
-                    raw_metrics={
-                        "score": score,
-                        "comments": comment_count,
-                        "hn_id": story_id,
-                        "hn_url": HN_ITEM_PAGE.format(item_id=story_id),
+                res = requests.get(
+                    HN_SEARCH_API,
+                    params={
+                        "query": kw,
+                        "tags": "story",
+                        "hitsPerPage": SEARCH_PER_KEYWORD,
+                        "numericFilters": f"points>={MIN_SCORE}",
                     },
-                    published_at=published_at,
-                ))
-
+                    timeout=10,
+                )
+                if res.status_code != 200:
+                    continue
+                for hit in res.json().get("hits", []):
+                    story_id = int(hit["objectID"])
+                    item = self._fetch_story(story_id, seen)
+                    if item:
+                        items.append(item)
             except Exception as e:
-                print(f"[HackerNewsScraper] Error fetching story {story_id}: {e}")
-                continue
+                print(f"⚠️ HN 关键词搜索失败 ({kw}): {e}")
 
-        print(f"[HackerNewsScraper] Fetched {len(items)} items (score >= {MIN_SCORE})")
+        print(f"  共抓取 {len(items)} 条（去重后）")
         return items
+
+    def _fetch_story(self, story_id: int, seen: set) -> RawItem | None:
+        try:
+            r = requests.get(ITEM_URL.format(item_id=story_id), timeout=10)
+            r.raise_for_status()
+            story = r.json()
+
+            if not story or story.get("type") != "story":
+                return None
+            if story.get("dead") or story.get("deleted"):
+                return None
+            if story.get("score", 0) < MIN_SCORE:
+                return None
+
+            title = story.get("title", "").strip()
+            if not title:
+                return None
+
+            url = story.get("url") or HN_ITEM_PAGE.format(item_id=story_id)
+            if url in seen:
+                return None
+            seen.add(url)
+
+            timestamp = story.get("time")
+            author = story.get("by", "")
+
+            return RawItem(
+                title=title,
+                original_url=url,
+                source_name=self.source_name,
+                source_type=self.source_type,
+                content_type=self.content_type,
+                author=author,
+                author_url=f"https://news.ycombinator.com/user?id={author}" if author else "",
+                body_text="",
+                raw_metrics={
+                    "score": story.get("score", 0),
+                    "comments": story.get("descendants", 0),
+                    "hn_id": story_id,
+                    "hn_url": HN_ITEM_PAGE.format(item_id=story_id),
+                },
+                published_at=datetime.fromtimestamp(timestamp, tz=timezone.utc) if timestamp else None,
+            )
+        except Exception:
+            return None
