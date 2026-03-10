@@ -3,7 +3,7 @@
 import os
 import requests
 from datetime import datetime, timedelta
-from ..base import BaseScraper, RawItem
+from infra.models import BaseScraper, RawItem
 
 
 class GitHubSearchScraper(BaseScraper):
@@ -89,10 +89,3 @@ class GitHubSearchScraper(BaseScraper):
 
         print(f"  抓取到 {len(items)} 条原始数据（去重后）")
         return items
-
-
-if __name__ == "__main__":
-    from scrapers.db import process_and_save
-    scraper = GitHubSearchScraper()
-    items = scraper.fetch()
-    process_and_save(items)
