@@ -1,0 +1,18 @@
+# test_scraper.yml
+name: Test Single Scraper
+
+on:
+  workflow_dispatch:
+    inputs:
+      scraper_name:
+        description: 'Scraper 类名，如 AnthropicBlogScraper'
+        type: string
+        required: true
+
+jobs:
+  run:
+    uses: ./.github/workflows/pipeline.yml
+    with:
+      table_suffix: "_test"
+      scraper_name: ${{ inputs.scraper_name }}
+    secrets: inherit
