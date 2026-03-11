@@ -1,0 +1,11 @@
+name: Test Run
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run:
+    uses: ./.github/workflows/_pipeline.yml
+    with:
+      table_suffix: "_test"
+    secrets: inherit
