@@ -1,0 +1,12 @@
+name: Daily AI Briefing
+
+on:
+  schedule:
+    - cron: '0 18 * * *'  # 北京时间凌晨 2:00 (UTC+8)
+
+jobs:
+  run:
+    uses: ./.github/workflows/_pipeline.yml
+    with:
+      table_suffix: ""
+    secrets: inherit
