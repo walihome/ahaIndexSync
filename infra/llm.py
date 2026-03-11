@@ -7,7 +7,7 @@ from openai import OpenAI
 from .models import RawItem
 
 KIMI_API_KEY = os.getenv("KIMI_API_KEY")
-MODEL = "kimi-latest"
+MODEL = "kimi-latest-8k"
 
 REQUEST_INTERVAL = 0.5  # 付费版限速宽松，0.5s 足够
 MAX_RETRIES = 3
