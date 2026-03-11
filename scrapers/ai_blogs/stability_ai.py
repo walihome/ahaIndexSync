@@ -1,33 +1,29 @@
-# scrapers/ai_blogs/anthropic.py
+# scrapers/ai_blogs/stability_ai.py
 
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime, timezone
+from datetime import datetime
 from infra.models import BaseScraper, RawItem
 
 
-class AnthropicBlogScraper(BaseScraper):
-    source_name = "Anthropic Blog"
+class StabilityAIBlogScraper(BaseScraper):
+    source_name = "Stability AI Blog"
     source_type = "BLOG"
     content_type = "article"
 
-    BASE_URL = "https://www.anthropic.com"
-    NEWS_URL = "https://www.anthropic.com/news"
+    BASE_URL = "https://stability.ai"
+    NEWS_URL = "https://stability.ai/news"
 
     def fetch(self) -> list[RawItem]:
         try:
-            res = requests.get(
-                self.NEWS_URL,
-                headers={"User-Agent": "Mozilla/5.0"},
-                timeout=15,
-            )
+            res = requests.get(self.NEWS_URL, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
             res.raise_for_status()
             soup = BeautifulSoup(res.text, "html.parser")
 
             items = []
             seen = set()
 
-            for card in soup.select("a[href^='/news/']"):
+            for card in soup.select("a[href*='/news/']"):
                 href = card.get("href", "")
                 if not href or href in ("/news", "/news/"):
                     continue
@@ -35,15 +31,11 @@ class AnthropicBlogScraper(BaseScraper):
                     continue
                 seen.add(href)
 
-                full_url = self.BASE_URL + href
-
+                full_url = href if href.startswith("http") else self.BASE_URL + href
                 title_tag = card.select_one("h2, h3, h4")
                 title = title_tag.get_text(strip=True) if title_tag else card.get_text(strip=True)
                 if not title:
                     continue
-
-                desc_tag = card.select_one("p")
-                body_text = desc_tag.get_text(strip=True) if desc_tag else ""
 
                 published_at = None
                 time_tag = card.select_one("time")
@@ -54,15 +46,16 @@ class AnthropicBlogScraper(BaseScraper):
                     except Exception:
                         pass
 
+                desc_tag = card.select_one("p")
                 items.append(RawItem(
                     title=title,
                     original_url=full_url,
                     source_name=self.source_name,
                     source_type=self.source_type,
                     content_type=self.content_type,
-                    author="Anthropic",
+                    author="Stability AI",
                     author_url=self.BASE_URL,
-                    body_text=body_text,
+                    body_text=desc_tag.get_text(strip=True) if desc_tag else "",
                     raw_metrics={},
                     extra={"source_tag": "official_ai"},
                     published_at=published_at,
@@ -70,7 +63,6 @@ class AnthropicBlogScraper(BaseScraper):
 
             print(f"  抓取到 {len(items)} 条")
             return items
-
         except Exception as e:
             print(f"⚠️ {self.source_name} 抓取失败: {e}")
             return []

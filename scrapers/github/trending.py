@@ -2,7 +2,7 @@
 
 import requests
 from bs4 import BeautifulSoup
-from ..base import BaseScraper, RawItem
+from infra.models import BaseScraper, RawItem
 
 class GitHubTrendingScraper(BaseScraper):
     source_name = "GitHub"
@@ -44,10 +44,3 @@ class GitHubTrendingScraper(BaseScraper):
         except Exception as e:
             print(f"⚠️ GitHub Trending 抓取失败: {e}")
             return []
-
-
-if __name__ == "__main__":
-    from scrapers.db import process_and_save
-    scraper = GitHubTrendingScraper()
-    items = scraper.fetch()
-    process_and_save(items)
