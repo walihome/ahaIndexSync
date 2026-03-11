@@ -15,17 +15,24 @@ supabase: Client = create_client(
     os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
 )
 
+_suffix = os.getenv("TABLE_SUFFIX", "")
+RAW_TABLE = f"raw_items{_suffix}"
+PROCESSED_TABLE = f"processed_items{_suffix}"
+
+if _suffix:
+    print(f"⚠️  测试模式：写入 {RAW_TABLE} / {PROCESSED_TABLE}")
+
 
 # ── 写入 ───────────────────────────────────────────────────────
 
 def upsert_raw_item(item: RawItem) -> None:
-    result = supabase.table("raw_items").upsert(item.to_db_dict()).execute()
+    result = supabase.table(RAW_TABLE).upsert(item.to_db_dict()).execute()
     if not result.data:
         raise Exception(f"upsert_raw_item 失败: {item.title}")
 
 
 def upsert_processed_item(item: RawItem, ai_data: dict, display_metrics: dict) -> None:
-    result = supabase.table("processed_items").upsert({
+    result = supabase.table(PROCESSED_TABLE).upsert({
         "item_id": item.id,
         "snapshot_date": date.today().isoformat(),
         "raw_title": item.title,
@@ -59,7 +66,7 @@ def get_pending_items() -> list[RawItem]:
     start, end = get_fetch_window()
 
     raw_data = (
-        supabase.table("raw_items")
+        supabase.table(RAW_TABLE)
         .select("*")
         .gte("created_at", start.isoformat())
         .lte("created_at", end.isoformat())
@@ -69,7 +76,7 @@ def get_pending_items() -> list[RawItem]:
 
     processed_raw_ids = {
         r["item_id"]
-        for r in supabase.table("processed_items")
+        for r in supabase.table(PROCESSED_TABLE)
         .select("item_id")
         .eq("snapshot_date", date.today().isoformat())
         .execute()
