@@ -1,21 +1,28 @@
-# scrapers/llm.py
+# infra/llm.py
 
 import os
 import json
+import time
 from openai import OpenAI
-from .base import RawItem
+from .models import RawItem
 
 KIMI_API_KEY = os.getenv("KIMI_API_KEY")
-MODEL = "moonshot-v1-8k"
+MODEL = "kimi-latest-8k"
+
+REQUEST_INTERVAL = 0.5  # 付费版限速宽松，0.5s 足够
+MAX_RETRIES = 3
 
 
 def process_with_ai(item: RawItem) -> dict | None:
     if not KIMI_API_KEY:
+        print("⚠️ KIMI_API_KEY 未设置，跳过 AI 处理")
         return None
+
     client = OpenAI(
         base_url="https://api.moonshot.cn/v1",
-        api_key=KIMI_API_KEY
+        api_key=KIMI_API_KEY,
     )
+
     prompt = f"""
 你是一个 AI 技术日报的资深编辑，风格参考 TLDR Newsletter：信息密度高、直击重点、让读者 5 秒内判断是否值得深读。
 
@@ -66,16 +73,33 @@ expert_insight:
   - ### ⚡ 为什么现在值得关注
   - （时效性或行业背景）
 """
-    try:
-        response = client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": "You only output JSON."},
-                {"role": "user", "content": prompt}
-            ],
-            model=MODEL,
-            response_format={"type": "json_object"}
-        )
-        return json.loads(response.choices[0].message.content)
-    except Exception as e:
-        print(f"⚠️ AI 处理失败: {item.title} | {e}")
-        return None
+
+    for attempt in range(MAX_RETRIES):
+        try:
+            response = client.chat.completions.create(
+                messages=[
+                    {"role": "system", "content": "You only output JSON."},
+                    {"role": "user", "content": prompt},
+                ],
+                model=MODEL,
+                response_format={"type": "json_object"},
+            )
+            result = json.loads(response.choices[0].message.content)
+            result["model"] = MODEL
+            time.sleep(REQUEST_INTERVAL)
+            return result
+
+        except Exception as e:
+            err_str = str(e)
+            is_rate_limit = "429" in err_str or "overloaded" in err_str
+
+            if is_rate_limit and attempt < MAX_RETRIES - 1:
+                wait = 2 ** (attempt + 2)  # 4s → 8s → 16s
+                print(f"  ⏳ 限流，{wait}s 后重试 ({attempt + 1}/{MAX_RETRIES}): {item.title[:40]}")
+                time.sleep(wait)
+                continue
+
+            print(f"⚠️ AI 处理失败: {item.title} | {e}")
+            return None
+
+    return None
