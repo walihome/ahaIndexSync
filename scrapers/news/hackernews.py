@@ -3,18 +3,14 @@
 import requests
 from datetime import datetime, timezone, timedelta
 from infra.models import BaseScraper, RawItem
-from config.tracked_keywords import TRACKED_KEYWORDS
 
 HN_API = "https://hacker-news.firebaseio.com/v0"
-HN_SEARCH_API = "https://hn.algolia.com/api/v1/search"
-NEW_STORIES_URL = f"{HN_API}/newstories.json"   # 按发布时间倒序，这才是 /new
+NEW_STORIES_URL = f"{HN_API}/newstories.json"
 ITEM_URL = f"{HN_API}/item/{{item_id}}.json"
 HN_ITEM_PAGE = "https://news.ycombinator.com/item?id={item_id}"
 
-# /new 最多取前500条（HN 每天新帖约300-500条），时间过滤后剩合理数量
 NEW_N = 500
-MIN_SCORE = 10    # /new 里的帖子普遍分低，门槛调低
-SEARCH_PER_KEYWORD = 3
+MIN_SCORE = 50
 
 
 class HackerNewsScraper(BaseScraper):
@@ -26,58 +22,31 @@ class HackerNewsScraper(BaseScraper):
         seen = set()
         items = []
         cutoff = datetime.now(timezone.utc) - timedelta(hours=36)
-        cutoff_ts = int(cutoff.timestamp())
 
-        # ── 1. New Stories（过去36小时内的新帖）─────────────────
         try:
             resp = requests.get(NEW_STORIES_URL, timeout=15)
             resp.raise_for_status()
             story_ids = resp.json()[:NEW_N]
 
             for story_id in story_ids:
-                item = self._fetch_story(story_id, seen, cutoff)
-                if item is None:
-                    continue
-                if item is False:
-                    # 发布时间早于 cutoff，后面的更老，直接停止
-                    break
-                items.append(item)
+                result = self._fetch_story(story_id, seen, cutoff)
+                if result is False:
+                    break  # 超出时间窗口，后面只会更老
+                if result:
+                    items.append(result)
 
         except Exception as e:
             print(f"⚠️ HN New Stories 失败: {e}")
 
-        # ── 2. 关键词搜索（Algolia，补充关键词相关内容）──────────
-        for kw in TRACKED_KEYWORDS:
-            try:
-                res = requests.get(
-                    HN_SEARCH_API,
-                    params={
-                        "query": kw,
-                        "tags": "story",
-                        "hitsPerPage": SEARCH_PER_KEYWORD,
-                        "numericFilters": f"points>={MIN_SCORE},created_at_i>={cutoff_ts}",
-                    },
-                    timeout=10,
-                )
-                if res.status_code != 200:
-                    continue
-                for hit in res.json().get("hits", []):
-                    story_id = int(hit["objectID"])
-                    item = self._fetch_story(story_id, seen, cutoff)
-                    if item and item is not False:
-                        items.append(item)
-            except Exception as e:
-                print(f"⚠️ HN 关键词搜索失败 ({kw}): {e}")
-
-        print(f"  共抓取 {len(items)} 条（去重后）")
+        print(f"  共抓取 {len(items)} 条（score >= {MIN_SCORE}，过去36小时）")
         return items
 
     def _fetch_story(self, story_id: int, seen: set, cutoff: datetime):
         """
         返回值：
-          RawItem  — 成功
-          None     — 跳过（dead/deleted/分数不够/重复）
-          False    — 发布时间早于 cutoff，调用方应停止遍历
+          RawItem — 成功
+          None    — 跳过
+          False   — 早于 cutoff，通知上层停止遍历
         """
         try:
             r = requests.get(ITEM_URL.format(item_id=story_id), timeout=10)
@@ -95,7 +64,7 @@ class HackerNewsScraper(BaseScraper):
 
             published_at = datetime.fromtimestamp(timestamp, tz=timezone.utc)
             if published_at < cutoff:
-                return False  # 已经超出时间窗口，通知上层停止
+                return False
 
             if story.get("score", 0) < MIN_SCORE:
                 return None
