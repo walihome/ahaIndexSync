@@ -1,4 +1,4 @@
-name: Daily AI Briefing
+name: Run PROD
 
 on:
   schedule:
