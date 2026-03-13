@@ -23,6 +23,10 @@ def process_with_ai(item: RawItem) -> dict | None:
         api_key=KIMI_API_KEY,
     )
 
+    # 读取 persona
+    with open("persona/idea.md", "r") as f:
+        persona = f.read()
+        
     prompt = f"""
 你是一个 AI 技术日报的资深编辑，风格参考 TLDR Newsletter：信息密度高、直击重点、让读者 5 秒内判断是否值得深读。
 
@@ -62,6 +66,7 @@ aha_index:
   - 0.0-1.0 浮点数
   - 参考：大厂官方重大发布=0.85-0.95，热门开源新工具=0.65-0.80，普通资讯=0.40-0.60
   - 热度指标（stars/score）高的可以适当加分
+  - 打分时，以下类型内容应优先给高分（参考编辑标准）：{persona}
 
 expert_insight:
   - 格式固定，总字数不超过150字
