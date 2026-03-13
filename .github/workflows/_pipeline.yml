@@ -13,8 +13,30 @@ on:
         default: ""
 
 jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    if: ${{ inputs.table_suffix != '' }}  # 只在测试环境执行
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Cleanup test tables
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          TABLE_SUFFIX: ${{ inputs.table_suffix }}
+        run: python cleanup.py
+
   scrape:
     runs-on: ubuntu-latest
+    needs: cleanup
+    if: always()
     steps:
       - uses: actions/checkout@v4
 
