@@ -10,6 +10,8 @@
 - https://t.me/s/xhqcankao
 - 
 
+## 可以赚钱的思路
+- https://www.ezindie.com/weekly/issue-154  独立变现周刊，这个是怎么来的
 
 
 ## 如何获取更多的咨询来源
