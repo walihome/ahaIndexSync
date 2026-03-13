@@ -64,6 +64,9 @@ def ai_rerank(candidates: list[dict], group: str, limit: int) -> list[dict]:
         f"[{i+1}] 来源:{c['source_name']}\n标题:{c.get('processed_title') or c.get('raw_title')}\n摘要:{c.get('summary', '')}"
         for i, c in enumerate(candidates)
     ])
+    # 读取 persona
+    with open("persona/idea.md", "r") as f:
+        persona = f.read()
 
     prompt = f"""
 你是 AI 日报编辑，负责从以下「{group}」候选内容中，选出最值得读者关注的 {limit} 条。
@@ -75,6 +78,9 @@ def ai_rerank(candidates: list[dict], group: str, limit: int) -> list[dict]:
 1. 信息增量高，读者看完有收获
 2. 避免重复或同质化内容
 3. 优先选择有实际影响的新闻或工具
+
+以下类型内容应优先给高分（参考编辑标准）：
+{persona}
 
 请输出 JSON，格式如下：
 {{
