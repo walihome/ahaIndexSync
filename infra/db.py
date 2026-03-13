@@ -18,9 +18,7 @@ supabase: Client = create_client(
 _suffix = os.getenv("TABLE_SUFFIX", "")
 RAW_TABLE = f"raw_items{_suffix}"
 PROCESSED_TABLE = f"processed_items{_suffix}"
-
-if _suffix:
-    print(f"⚠️  测试模式：写入 {RAW_TABLE} / {PROCESSED_TABLE}")
+DISPLAY_TABLE = f"display_items{_suffix}"
 
 
 # ── 写入 ───────────────────────────────────────────────────────
