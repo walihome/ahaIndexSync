@@ -7,6 +7,10 @@ on:
         description: '数据库表后缀，生产为空，测试为 _test'
         type: string
         default: ""
+      scraper_name:
+        description: '指定单个 scraper 类名，为空时跑全量'
+        type: string
+        default: ""
 
 jobs:
   scrape:
@@ -28,6 +32,7 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GH_MODELS_TOKEN: ${{ secrets.GH_MODELS_TOKEN }}
           TABLE_SUFFIX: ${{ inputs.table_suffix }}
+          SCRAPER_NAME: ${{ inputs.scraper_name }}
         run: python scrape.py
 
   process:
@@ -53,3 +58,26 @@ jobs:
           GH_MODELS_TOKEN: ${{ secrets.GH_MODELS_TOKEN }}
           TABLE_SUFFIX: ${{ inputs.table_suffix }}
         run: python process.py
+
+  rank:
+    runs-on: ubuntu-latest
+    needs: process
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run rank
+        env:
+          TZ: Asia/Shanghai
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          KIMI_API_KEY: ${{ secrets.KIMI_API_KEY }}
+          TABLE_SUFFIX: ${{ inputs.table_suffix }}
+        run: python rank.py
