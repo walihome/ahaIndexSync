@@ -8,7 +8,7 @@ TRACKED_KEYWORDS = [
     "context engineering",
     "context window",
     "MCP",                     # Model Context Protocol
-    "claude skill",
+    "skill",
     "agentic workflow",
     "multi-agent",
 
