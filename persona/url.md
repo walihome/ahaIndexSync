@@ -7,4 +7,5 @@
 ## Telegram
 - https://t.me/s/tnews365
 - https://t.me/s/TestFlightCN
+- https://t.me/s/xhqcankao
 - 
