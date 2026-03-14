@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       scraper_name:
-        description: 'Scraper 类名，如 AnthropicBlogScraper'
+        description: 'TwitterScraper'
         type: string
         required: true
 
