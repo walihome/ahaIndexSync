@@ -11,7 +11,7 @@ on:
 
 jobs:
   run:
-    uses: ./.github/workflows/pipeline.yml
+    uses: ./.github/workflows/_pipeline.yml
     with:
       table_suffix: "_test"
       scraper_name: ${{ inputs.scraper_name }}
