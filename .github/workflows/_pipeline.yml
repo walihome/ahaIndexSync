@@ -15,7 +15,7 @@ on:
 jobs:
   cleanup:
     runs-on: ubuntu-latest
-    if: ${{ inputs.table_suffix != '' }}  # 只在测试环境执行
+    if: ${{ inputs.table_suffix != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -46,6 +46,17 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r requirements.txt
+
+      - name: Restore twscrape accounts
+        env:
+          TWSCRAPE_DB_BASE64: ${{ secrets.TWSCRAPE_DB_BASE64 }}
+        run: |
+          if [ -n "$TWSCRAPE_DB_BASE64" ]; then
+            echo "$TWSCRAPE_DB_BASE64" | base64 -d > .twscrape_accounts.db
+            echo "✅ twscrape accounts restored"
+          else
+            echo "⚠️ TWSCRAPE_DB_BASE64 未设置，Twitter 抓取将跳过"
+          fi
 
       - name: Run scrape
         env:
