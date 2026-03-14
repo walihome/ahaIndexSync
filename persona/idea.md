@@ -2,6 +2,7 @@
 
 
 - 重大的更新
+  - 苹果的新闻稿：https://developer.apple.com/cn/news/
 - 薅羊毛、福利之类的，比如ChatGPT/Codex 6月Pro福利发放, 比如某些APP限免
 - 宕机类，大家对于宕机喜闻乐见
 - 公开的裁员信息，给大家敲醒
