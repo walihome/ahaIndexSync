@@ -148,7 +148,10 @@ def main():
             candidates.extend(source_map.get(source, []))
 
         if not candidates:
-            print(f"  [{group}] 无数据，跳过")
+            if group_cfg.get("must_include"):
+                print(f"  [{group}] ⚠️ must_include=True 但无数据，跳过")
+            else:
+                print(f"  [{group}] 无数据，跳过")
             continue
 
         if ai_rerank_enabled:
@@ -168,6 +171,16 @@ def main():
 
     if rows_to_insert:
         supabase.table(DISPLAY_TABLE).insert(rows_to_insert).execute()
+
+    # 检查 must_include 分组是否都有数据
+    missing = [
+        g["group"] for g in RANK_GROUPS
+        if g.get("must_include") and not any(
+            item["source_name"] in g["sources"] for item in data
+        )
+    ]
+    if missing:
+        print(f"\n⚠️  以下必要来源今日无数据: {', '.join(missing)}")
 
     total_cost = (datetime.now() - start_time).total_seconds()
     print(f"\n{'═' * 40}")
