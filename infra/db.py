@@ -2,6 +2,7 @@
 # 纯数据库读写，不含任何业务逻辑
 
 import os
+import json
 from datetime import date, datetime, timezone
 from supabase import create_client, Client
 from dotenv import load_dotenv
@@ -92,6 +93,14 @@ def get_pending_items() -> list[RawItem]:
             except Exception:
                 pass
 
+        def _parse_json(val):
+            if isinstance(val, str):
+                try:
+                    return json.loads(val)
+                except Exception:
+                    return {}
+            return val or {}
+
         items.append(RawItem(
             title=r["title"],
             original_url=r["original_url"],
@@ -101,8 +110,8 @@ def get_pending_items() -> list[RawItem]:
             author=r.get("author", ""),
             author_url=r.get("author_url", ""),
             body_text=r.get("body_text", ""),
-            raw_metrics=r.get("raw_metrics", {}),
-            extra=r.get("extra", {}),
+            raw_metrics=_parse_json(r.get("raw_metrics")),
+            extra=_parse_json(r.get("extra")),
             published_at=published_at,
         ))
 
