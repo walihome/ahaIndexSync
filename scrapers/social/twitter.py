@@ -8,7 +8,6 @@ from twscrape.logger import set_log_level
 from infra.models import BaseScraper, RawItem
 from config.tracked_keywords import TRACKED_KEYWORDS
 
-# 指定账号时间线：高质量 AI 领域博主
 WATCH_ACCOUNTS = [
     "karpathy",
     "sama",
@@ -41,36 +40,58 @@ class TwitterScraper(BaseScraper):
             return []
 
     async def _fetch_all(self) -> list[RawItem]:
-        set_log_level("ERROR")
+        set_log_level("INFO")  # 改成 INFO 看详细连接日志
         api = API(ACCOUNTS_DB)
+
+        # 先检查账号状态
+        stats = await api.pool.stats()
+        print(f"  账号状态: {stats}")
+        if stats.get('active', 0) == 0:
+            print(f"  ⚠️ 无可用账号，跳过")
+            return []
 
         seen: set[str] = set()
         items: list[RawItem] = []
         cutoff = datetime.now(timezone.utc) - timedelta(days=MAX_AGE_DAYS)
 
-        # ── 1. 关键词搜索（从全局配置生成 query）────────────────
+        # ── 1. 关键词搜索 ─────────────────────────────────────
+        print(f"  开始关键词搜索，共 {len(TRACKED_KEYWORDS)} 个关键词")
         for kw in TRACKED_KEYWORDS:
             query = f'"{kw}" -is:retweet lang:en min_faves:100'
             try:
-                tweets = await gather(api.search(query, limit=SEARCH_LIMIT))
+                print(f"  [搜索] {kw}...")
+                tweets = await asyncio.wait_for(
+                    gather(api.search(query, limit=SEARCH_LIMIT)),
+                    timeout=30  # 单个关键词最多等 30 秒
+                )
                 new_count = 0
                 for t in tweets:
                     item = self._to_raw_item(t, cutoff, seen)
                     if item:
                         items.append(item)
                         new_count += 1
-                if new_count:
-                    print(f"  [搜索] {kw} → {new_count} 条")
+                print(f"  [搜索] {kw} → {new_count} 条")
+            except asyncio.TimeoutError:
+                print(f"  [搜索] {kw} 超时，跳过")
             except Exception as e:
                 print(f"  [搜索] 失败 ({kw}): {e}")
 
         # ── 2. 指定账号时间线 ──────────────────────────────────
+        print(f"  开始账号时间线抓取，共 {len(WATCH_ACCOUNTS)} 个账号")
         for username in WATCH_ACCOUNTS:
             try:
-                user = await api.user_by_login(username)
+                print(f"  [@{username}] 抓取中...")
+                user = await asyncio.wait_for(
+                    api.user_by_login(username),
+                    timeout=15
+                )
                 if not user:
+                    print(f"  [@{username}] 用户不存在，跳过")
                     continue
-                tweets = await gather(api.user_tweets(user.id, limit=TIMELINE_LIMIT))
+                tweets = await asyncio.wait_for(
+                    gather(api.user_tweets(user.id, limit=TIMELINE_LIMIT)),
+                    timeout=30
+                )
                 new_count = 0
                 for t in tweets:
                     if t.likeCount < TIMELINE_MIN_FAVES:
@@ -79,8 +100,9 @@ class TwitterScraper(BaseScraper):
                     if item:
                         items.append(item)
                         new_count += 1
-                if new_count:
-                    print(f"  [@{username}] → {new_count} 条")
+                print(f"  [@{username}] → {new_count} 条")
+            except asyncio.TimeoutError:
+                print(f"  [@{username}] 超时，跳过")
             except Exception as e:
                 print(f"  [@{username}] 失败: {e}")
 
