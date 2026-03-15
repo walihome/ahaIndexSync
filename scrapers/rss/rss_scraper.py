@@ -47,10 +47,6 @@ def _build_raw_item(entry, feed_cfg: dict) -> RawItem | None:
 
 
 class RSSFeedScraper(BaseScraper):
-    """
-    通用 RSS 抓取器，所有配置来自 rss_config.py。
-    实现标准 fetch() 接口，与其他 scraper 完全一致。
-    """
     source_name = "RSS"
     source_type = "ARTICLE"
     content_type = "article"
@@ -72,22 +68,33 @@ class RSSFeedScraper(BaseScraper):
 
                 items = []
                 skipped_old = 0
+                skipped_no_date = 0
 
                 for entry in parsed.entries:
                     item = _build_raw_item(entry, feed_cfg)
                     if not item:
                         continue
-                    if item.published_at and item.published_at < cutoff:
+
+                    if item.published_at is None:
+                        # 解析不到时间：保留但计数，不做时间过滤
+                        skipped_no_date += 1
+                        items.append(item)
+                    elif item.published_at < cutoff:
                         skipped_old += 1
-                        continue
-                    items.append(item)
+                        # RSS 是倒序的，遇到过期直接停止遍历
+                        break
+                    else:
+                        items.append(item)
+
                     if max_items is not None and len(items) >= max_items:
                         break
 
-                print(
-                    f"  [{name}] {len(items)} 条"
-                    + (f"，跳过 {skipped_old} 条过期" if skipped_old else "")
-                )
+                log = f"  [{name}] {len(items)} 条"
+                if skipped_old:
+                    log += f"，遇到过期内容后停止"
+                if skipped_no_date:
+                    log += f"，{skipped_no_date} 条无日期"
+                print(log)
                 results.extend(items)
 
             except Exception as e:
