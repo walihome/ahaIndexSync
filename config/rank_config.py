@@ -15,8 +15,6 @@ RANK_GROUPS = [
         "sources": [
             "Anthropic Blog",
             "OpenAI Blog",
-            "Google DeepMind Blog",
-            "Meta AI Blog",
             "Mistral AI Blog",
             "xAI Blog",
             "Cohere Blog",
@@ -88,7 +86,7 @@ RANK_GROUPS = [
     },
     {
         "group": "国内资讯",
-        "sources": ["少数派", "IT之家", "虎嗅", "36氪", "V2EX", "奇客Solidot"],
+        "sources": ["虎嗅", "V2EX", "奇客Solidot"],
         "limit": 1,
         "sort_by": "aha_index",
         "ai_rerank": True,
