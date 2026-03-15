@@ -1,10 +1,23 @@
 # scrapers/rss/rss_scraper.py
 
 import re
+import requests
 import feedparser
 from datetime import datetime, timezone, timedelta
 from infra.models import BaseScraper, RawItem
-from .rss_config import RSS_FEEDS, FETCH_WINDOW_HOURS
+from .rss_config import RSS_FEEDS, FETCH_WINDOW_HOURS, NITTER_INSTANCES
+
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    )
+}
+
+# Nitter 实例健康状态缓存（运行期间有效）
+# 记录已知不可用的实例，避免重复尝试
+_nitter_blacklist: set[str] = set()
 
 
 def _parse_date(entry) -> datetime | None:
@@ -27,6 +40,65 @@ def _clean_text(text: str) -> str:
 
 def _is_retweet(title: str) -> bool:
     return title.strip().startswith("RT by @")
+
+
+def _fetch_feed(url: str, timeout: int = 15) -> feedparser.FeedParserDict | None:
+    """用 requests 先拿 HTTP 响应，再交给 feedparser 解析。
+    好处：能拿到 status code，超时可控，header 可定制。
+    """
+    try:
+        resp = requests.get(url, timeout=timeout, headers=HEADERS)
+        if resp.status_code != 200:
+            print(f"    HTTP {resp.status_code} for {url}")
+            return None
+        return feedparser.parse(resp.text)
+    except requests.Timeout:
+        print(f"    超时: {url}")
+        return None
+    except Exception as e:
+        print(f"    请求失败: {url} -> {e}")
+        return None
+
+
+def _fetch_nitter_feed(twitter_user: str) -> feedparser.FeedParserDict | None:
+    """依次尝试多个 Nitter 实例，返回第一个成功的结果。"""
+    for instance in NITTER_INSTANCES:
+        if instance in _nitter_blacklist:
+            continue
+
+        url = f"{instance}/{twitter_user}/rss"
+        try:
+            resp = requests.get(url, timeout=10, headers=HEADERS)
+
+            if resp.status_code == 429:
+                print(f"    ⚠️ {instance} 被限流(429)，切换下一个实例")
+                _nitter_blacklist.add(instance)
+                continue
+
+            if resp.status_code != 200:
+                print(f"    ⚠️ {instance} 返回 HTTP {resp.status_code}，切换下一个实例")
+                _nitter_blacklist.add(instance)
+                continue
+
+            parsed = feedparser.parse(resp.text)
+            if parsed.entries:
+                return parsed
+
+            # 有响应但没内容，可能实例有问题
+            print(f"    ⚠️ {instance} 返回空 feed，切换下一个实例")
+            continue
+
+        except requests.Timeout:
+            print(f"    ⚠️ {instance} 超时，切换下一个实例")
+            _nitter_blacklist.add(instance)
+            continue
+        except Exception as e:
+            print(f"    ⚠️ {instance} 失败: {e}，切换下一个实例")
+            _nitter_blacklist.add(instance)
+            continue
+
+    print(f"    ❌ 所有 Nitter 实例均不可用 (@{twitter_user})")
+    return None
 
 
 def _build_raw_item(entry, feed_cfg: dict) -> RawItem | None:
@@ -53,7 +125,7 @@ def _build_raw_item(entry, feed_cfg: dict) -> RawItem | None:
         raw_metrics={},
         extra={
             "source_tag": feed_cfg.get("source_tag", ""),
-            "feed_url": feed_cfg["url"],
+            "feed_url": feed_cfg.get("url", ""),
         },
         published_at=_parse_date(entry),
     )
@@ -65,7 +137,7 @@ def _build_aggregate_item(feed_cfg: dict, tweets: list[dict]) -> RawItem | None:
         return None
 
     # 从 source_name 提取账号名，如 "Twitter @ylecun" → "ylecun"
-    account = feed_cfg["name"].replace("Twitter @", "").strip()
+    account = feed_cfg.get("twitter_user") or feed_cfg["name"].replace("Twitter @", "").strip()
 
     # 按时间排序
     tweets.sort(key=lambda x: x["published_at"] or datetime.min.replace(tzinfo=timezone.utc))
@@ -86,7 +158,7 @@ def _build_aggregate_item(feed_cfg: dict, tweets: list[dict]) -> RawItem | None:
         original_url=latest["url"],
         source_name=feed_cfg["name"],
         source_type="TWEET",
-        content_type="tweet_digest",   # 新类型，触发专属 AI prompt
+        content_type="tweet_digest",
         author=account,
         author_url=f"https://x.com/{account}",
         body_text=body_text,
@@ -113,16 +185,29 @@ class RSSFeedScraper(BaseScraper):
             name = feed_cfg["name"]
             max_items = feed_cfg.get("max_items")
             is_aggregate = feed_cfg.get("aggregate", False)
+            twitter_user = feed_cfg.get("twitter_user")
 
             try:
-                parsed = feedparser.parse(feed_cfg["url"])
+                # ── 获取 feed ──────────────────────────────────
+                if twitter_user:
+                    # Nitter RSS：自动 fallback 多个实例
+                    parsed = _fetch_nitter_feed(twitter_user)
+                elif feed_cfg.get("url"):
+                    # 普通 RSS：用 requests 预检
+                    parsed = _fetch_feed(feed_cfg["url"])
+                else:
+                    print(f"  ⚠️ [{name}] 无 url 也无 twitter_user，跳过")
+                    continue
+
+                if parsed is None:
+                    continue
 
                 if parsed.bozo and not parsed.entries:
                     print(f"  ⚠️ [{name}] RSS 解析失败: {parsed.bozo_exception}")
                     continue
 
                 if is_aggregate:
-                    # 聚合模式：收集原创推文，合并成一条
+                    # ── 聚合模式：收集原创推文，合并成一条 ──
                     tweets = []
                     for entry in parsed.entries:
                         title = (getattr(entry, "title", "") or "").strip()
@@ -132,10 +217,10 @@ class RSSFeedScraper(BaseScraper):
                             continue
 
                         pub = _parse_date(entry)
-                        # 无日期或超出时间窗口跳过
-                        if pub and pub < cutoff:
-                            break
+                        # 无日期跳过，过期跳过（用 continue 而非 break，防止乱序）
                         if pub is None:
+                            continue
+                        if pub < cutoff:
                             continue
 
                         url = (getattr(entry, "link", "") or "").strip()
@@ -158,7 +243,7 @@ class RSSFeedScraper(BaseScraper):
                         print(f"  [{name}] 无近期原创推文，跳过")
 
                 else:
-                    # 普通模式：逐条处理
+                    # ── 普通模式：逐条处理 ──
                     items = []
                     skipped_old = 0
                     skipped_no_date = 0
@@ -194,5 +279,9 @@ class RSSFeedScraper(BaseScraper):
 
             except Exception as e:
                 print(f"  ❌ [{name}] 失败: {e}")
+
+        # 打印 Nitter 实例健康状况
+        if _nitter_blacklist:
+            print(f"  ℹ️ 本次运行中不可用的 Nitter 实例: {', '.join(_nitter_blacklist)}")
 
         return results
