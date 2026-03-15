@@ -22,7 +22,7 @@ RANK_GROUPS = [
             "Cohere Blog",
             "Stability AI Blog",
         ],
-        "limit": 3,
+        "limit": 5,
         "sort_by": "aha_index",
         "ai_rerank": False,
         "must_include": True,   # AI 官方动态必须展示
@@ -45,10 +45,21 @@ RANK_GROUPS = [
     },
     {
         "group": "社交热点",
-        "sources": ["X (Twitter)"],
+        "sources": [
+            "X (Twitter)",
+            "Twitter @anthropic", "Twitter @openai", "Twitter @GoogleDeepMind",
+            "Twitter @MetaAI", "Twitter @MistralAI", "Twitter @xai",
+            "Twitter @huggingface", "Twitter @nvidia",
+            "Twitter @sama", "Twitter @karpathy", "Twitter @ylecun",
+            "Twitter @demishassabis", "Twitter @GaryMarcus", "Twitter @emollick",
+            "Twitter @drjimfan", "Twitter @bindureddy", "Twitter @ilyasut",
+            "Twitter @svpino", "Twitter @hardmaru", "Twitter @fchollet",
+            "Twitter @jeremyphoward", "Twitter @alexalbert__", "Twitter @swyx",
+            "Twitter @kaifulee", "Twitter @drfeifei",
+        ],
         "limit": 5,
-        "sort_by": "likes",
-        "ai_rerank": False,
+        "sort_by": "aha_index",
+        "ai_rerank": True,   # AI 从所有账号今日聚合里选最值得推的5个
         "must_include": False,
     },
     {
