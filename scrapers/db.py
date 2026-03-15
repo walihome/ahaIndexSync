@@ -1,78 +1,37 @@
-# scrapers/db.py
+# infra/db.py
+# 纯数据库读写，不含任何业务逻辑
 
 import os
 import json
-from datetime import datetime, timezone, date
-from openai import OpenAI
+from datetime import date, datetime, timezone
 from supabase import create_client, Client
 from dotenv import load_dotenv
-from .base import RawItem
-from .displayMetrics import DISPLAY_METRICS_CONFIG
-from .llm import process_with_ai
-from .content_fetcher import enrich_body_text
+from .models import RawItem
+from .time_utils import get_fetch_window, today_str
 
 load_dotenv()
 
 supabase: Client = create_client(
     os.getenv("SUPABASE_URL"),
-    os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
 )
 
-# ── AI 关键词过滤 ──────────────────────────────────────────────
-
-AI_KEYWORDS = [
-    "LLM", "RAG", "Agent", "Prompt", "Transformer", "Vector Database",
-    "Diffusion", "Fine-tuning", "Multi-modal", "Knowledge Graph",
-    "Context Window", "Memory module", "Semantic Kernel", "LangChain"
-]
-
-def is_ai_related(item: RawItem) -> bool:
-    text = f"{item.title} {item.body_text}".lower()
-    return any(k.lower() in text for k in AI_KEYWORDS)
-
-# ── build_display_metrics ──────────────────────────────────────
-def build_display_metrics(item: RawItem) -> dict:
-    """根据 content_type 配置，从 raw_metrics / extra 组装前端展示字段"""
-    config = DISPLAY_METRICS_CONFIG.get(item.content_type, [])
-    data = {
-        **item.extra,
-        **item.raw_metrics,
-        "published_at": item.published_at.isoformat() if item.published_at else None,
-        "source_name":  item.source_name,
-    }
-    result = []
-    for field in config:
-        key = field["key"]
-        fmt = field["format"]
-        val = data.get(key)
-        if val is None:
-            continue
-        if fmt == "number":
-            display = f"{int(val):,}"
-        elif fmt == "days_ago":
-            created = datetime.fromisoformat(str(val).replace("Z", "+00:00"))
-            days = (datetime.now(timezone.utc) - created).days
-            display = "今天" if days == 0 else f"{days} 天前"
-        elif fmt == "date":
-            display = str(val)[:10].replace("-", "/")
-        else:
-            display = str(val)
-        result.append({"label": field["label"], "value": display})
-    return {"items": result}
+_suffix = os.getenv("TABLE_SUFFIX", "")
+RAW_TABLE = f"raw_items{_suffix}"
+PROCESSED_TABLE = f"processed_items{_suffix}"
+DISPLAY_TABLE = f"display_items{_suffix}"
 
 
-# ── 写库 ───────────────────────────────────────────────────────
+# ── 写入 ───────────────────────────────────────────────────────
 
-def save_raw_item(item: RawItem):
-    result = supabase.table("raw_items").upsert(
-        item.to_db_dict()
-    ).execute()
+def upsert_raw_item(item: RawItem) -> None:
+    result = supabase.table(RAW_TABLE).upsert(item.to_db_dict()).execute()
     if not result.data:
-        raise Exception(f"save_raw_item 写入失败: {item.title}")
+        raise Exception(f"upsert_raw_item 失败: {item.title}")
 
 
-def save_processed_item(item: RawItem, ai_data: dict):
-    result = supabase.table("processed_items").upsert({
+def upsert_processed_item(item: RawItem, ai_data: dict, display_metrics: dict) -> None:
+    result = supabase.table(PROCESSED_TABLE).upsert({
         "item_id": item.id,
         "snapshot_date": date.today().isoformat(),
         "raw_title": item.title,
@@ -81,7 +40,7 @@ def save_processed_item(item: RawItem, ai_data: dict):
         "content_type": item.content_type,
         "author": item.author,
         "raw_metrics": item.raw_metrics,
-        "model": "gemini-2.0-flash",
+        "model": ai_data.get("model", "unknown"),
         "processed_title": ai_data.get("processed_title"),
         "summary": ai_data.get("summary"),
         "category": ai_data.get("category"),
@@ -89,29 +48,72 @@ def save_processed_item(item: RawItem, ai_data: dict):
         "keywords": ai_data.get("keywords", []),
         "aha_index": float(ai_data.get("aha_index", 0.5)),
         "expert_insight": ai_data.get("expert_insight"),
+        "display_metrics": display_metrics,
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "display_metrics": build_display_metrics(item),
     }).execute()
     if not result.data:
-        raise Exception(f"save_processed_item 写入失败: {item.title}")
+        raise Exception(f"upsert_processed_item 失败: {item.title}")
 
 
-def process_and_save(items: list[RawItem], skip_ai_filter: bool = False):
+# ── 读取 ───────────────────────────────────────────────────────
+
+def get_pending_items() -> list[RawItem]:
     """
-    统一处理入口，所有抓取脚本调用这一个函数
-    skip_ai_filter=True 时跳过关键词过滤（如 AI 公司博客，天然相关）
+    返回今日写入但尚未处理的 raw_items。
+    统一用北京时间（TZ=Asia/Shanghai），用 created_at 时间窗口过滤。
     """
-    filtered = items if skip_ai_filter else [i for i in items if is_ai_related(i)]
-    print(f"📊 收到 {len(items)} 条，过滤后 {len(filtered)} 条")
+    start, end = get_fetch_window()
+    today = today_str()
 
-    for item in filtered:
-        try:
-            # 先补充正文，再做 AI 分析
-            item.body_text = enrich_body_text(item)
-            save_raw_item(item)
-            ai_data = process_with_ai(item)
-            if ai_data:
-                save_processed_item(item, ai_data)
-                print(f"✅ {item.source_name} | {item.title}")
-        except Exception as e:
-            print(f"❌ 处理失败 ({item.title}): {e}")
+    raw_data = (
+        supabase.table(RAW_TABLE)
+        .select("*")
+        .gte("created_at", start.isoformat())
+        .lte("created_at", end.isoformat())
+        .execute()
+        .data
+    )
+
+    processed_raw_ids = {
+        r["item_id"]
+        for r in supabase.table(PROCESSED_TABLE)
+        .select("item_id")
+        .eq("snapshot_date", today)
+        .execute()
+        .data
+    }
+
+    pending = [r for r in raw_data if r["id"] not in processed_raw_ids]
+
+    items = []
+    for r in pending:
+        published_at = None
+        if r.get("published_at"):
+            try:
+                published_at = datetime.fromisoformat(r["published_at"])
+            except Exception:
+                pass
+
+        def _parse_json(val):
+            if isinstance(val, str):
+                try:
+                    return json.loads(val)
+                except Exception:
+                    return {}
+            return val or {}
+
+        items.append(RawItem(
+            title=r["title"],
+            original_url=r["original_url"],
+            source_name=r["source_name"],
+            source_type=r["source_type"],
+            content_type=r["content_type"],
+            author=r.get("author", ""),
+            author_url=r.get("author_url", ""),
+            body_text=r.get("body_text", ""),
+            raw_metrics=_parse_json(r.get("raw_metrics")),
+            extra=_parse_json(r.get("extra")),
+            published_at=published_at,
+        ))
+
+    return items

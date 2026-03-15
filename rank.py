@@ -9,6 +9,7 @@ from datetime import date, datetime
 from pathlib import Path
 from openai import OpenAI
 from infra.db import supabase, PROCESSED_TABLE, DISPLAY_TABLE
+from infra.time_utils import today_str
 from infra.link_checker import is_accessible
 from config.rank_config import RANK_GROUPS
 
@@ -110,7 +111,7 @@ def ai_rerank(candidates: list[dict], group: str, limit: int) -> list[dict]:
 
 def main():
     start_time = datetime.now()
-    today = date.today().isoformat()
+    today = today_str()
     print(f"\n🏆 精排启动 | {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
 
     data = (
