@@ -1,0 +1,39 @@
+name: Test Elon RSS
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: pip install requests feedparser
+
+      - name: Test elonmusk nitter
+        run: |
+          python3 - << 'EOF'
+          import requests
+          import feedparser
+          from datetime import datetime, timezone, timedelta
+
+          HEADERS = {"User-Agent": "Mozilla/5.0"}
+          cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+
+          url = "https://nitter.net/elonmusk/rss"
+          resp = requests.get(url, timeout=10, headers=HEADERS)
+          print(f"HTTP {resp.status_code}")
+
+          feed = feedparser.parse(resp.text)
+          entries = feed.entries
+          print(f"共 {len(entries)} 条\n")
+
+          for e in entries[:5]:
+              t = datetime(*e.published_parsed[:6], tzinfo=timezone.utc) if e.get("published_parsed") else None
+              age = f"{(datetime.now(timezone.utc) - t).seconds // 60}分钟前" if t else "时间未知"
+              print(f"  [{age}] {e.title[:80]}")
+          EOF
