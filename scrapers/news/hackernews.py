@@ -1,6 +1,8 @@
 # scrapers/news/hackernews.py
 
 import requests
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone, timedelta
 from infra.models import BaseScraper, RawItem
 
@@ -11,6 +13,54 @@ HN_ITEM_PAGE = "https://news.ycombinator.com/item?id={item_id}"
 
 NEW_N = 500
 MIN_SCORE = 50
+FETCH_WORKERS = 5  # 并发抓取正文的线程数
+
+# 抓不到正文的域名，跳过
+SKIP_DOMAINS = {
+    "twitter.com", "x.com",
+    "medium.com",
+    "zhihu.com",
+}
+
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    )
+}
+
+# trafilatura 多线程不安全，加锁
+try:
+    import trafilatura
+    _trafilatura_lock = threading.Lock()
+    HAS_TRAFILATURA = True
+except ImportError:
+    HAS_TRAFILATURA = False
+
+
+def _fetch_body(url: str) -> str:
+    """抓取文章正文"""
+    if not HAS_TRAFILATURA:
+        return ""
+    if any(d in url for d in SKIP_DOMAINS):
+        return ""
+    if "news.ycombinator.com" in url:
+        return ""
+    try:
+        resp = requests.get(url, timeout=10, headers=HEADERS)
+        if resp.status_code != 200:
+            return ""
+        with _trafilatura_lock:
+            content = trafilatura.extract(
+                resp.text,
+                include_comments=False,
+                include_tables=True,
+                no_fallback=False,
+            )
+        return content or ""
+    except Exception:
+        return ""
 
 
 class HackerNewsScraper(BaseScraper):
@@ -31,15 +81,36 @@ class HackerNewsScraper(BaseScraper):
             for story_id in story_ids:
                 result = self._fetch_story(story_id, seen, cutoff)
                 if result is False:
-                    break  # 超出时间窗口，后面只会更老
+                    break
                 if result:
                     items.append(result)
 
         except Exception as e:
             print(f"⚠️ HN New Stories 失败: {e}")
 
+        # 并发抓取正文
+        if items:
+            print(f"  📄 并发抓取 {len(items)} 篇正文（workers={FETCH_WORKERS}）...")
+            self._enrich_items(items)
+
         print(f"  共抓取 {len(items)} 条（score >= {MIN_SCORE}，过去36小时）")
         return items
+
+    def _enrich_items(self, items: list[RawItem]):
+        """并发为每条 item 抓取正文"""
+        with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as executor:
+            futures = {
+                executor.submit(_fetch_body, item.original_url): item
+                for item in items
+            }
+            for future in as_completed(futures):
+                item = futures[future]
+                try:
+                    body = future.result()
+                    if body:
+                        item.body_text = body
+                except Exception:
+                    pass
 
     def _fetch_story(self, story_id: int, seen: set, cutoff: datetime):
         """
@@ -87,7 +158,7 @@ class HackerNewsScraper(BaseScraper):
                 content_type=self.content_type,
                 author=author,
                 author_url=f"https://news.ycombinator.com/user?id={author}" if author else "",
-                body_text="",
+                body_text="",  # 后续由 _enrich_items 并发填充
                 raw_metrics={
                     "score": story.get("score", 0),
                     "comments": story.get("descendants", 0),
