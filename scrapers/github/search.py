@@ -1,9 +1,61 @@
 # scrapers/github/search.py
 
 import os
+import re
 import requests
 from datetime import datetime, timedelta
 from infra.models import BaseScraper, RawItem
+
+GITHUB_TOKEN_ENV = "GH_MODELS_TOKEN"
+FETCH_WINDOW_HOURS = 25 * 24  # 时间窗口
+
+
+def _get_headers(token: str) -> dict:
+    return {"Authorization": f"token {token}"}
+
+
+def _clean_readme(text: str) -> str:
+    text = re.sub(r'```[\s\S]*?```', '', text)
+    text = re.sub(r'`[^`]+`', '', text)
+    text = re.sub(r'!\[.*?\]\(.*?\)', '', text)
+    text = re.sub(r'^\s*\[.*?\]\(.*?\)\s*$', '', text, flags=re.MULTILINE)
+    text = re.sub(r'<[^>]+>', '', text)
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
+
+
+def _fetch_readme(owner: str, repo: str, token: str) -> str:
+    try:
+        headers = {"Accept": "application/vnd.github.raw"}
+        if token:
+            headers["Authorization"] = f"token {token}"
+        resp = requests.get(
+            f"https://api.github.com/repos/{owner}/{repo}/readme",
+            headers=headers,
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            return ""
+        return _clean_readme(resp.text)
+    except Exception:
+        return ""
+
+
+def _fetch_languages(owner: str, repo: str, token: str) -> str:
+    try:
+        headers = {"Accept": "application/vnd.github+json"}
+        if token:
+            headers["Authorization"] = f"token {token}"
+        resp = requests.get(
+            f"https://api.github.com/repos/{owner}/{repo}/languages",
+            headers=headers, timeout=10,
+        )
+        if resp.status_code != 200:
+            return ""
+        langs = list(resp.json().keys())[:5]
+        return f"主要语言：{', '.join(langs)}\n\n" if langs else ""
+    except Exception:
+        return ""
 
 
 class GitHubSearchScraper(BaseScraper):
@@ -12,22 +64,17 @@ class GitHubSearchScraper(BaseScraper):
     content_type = "repo"
 
     def fetch(self) -> list[RawItem]:
-        token = os.getenv("GH_MODELS_TOKEN")
+        token = os.getenv(GITHUB_TOKEN_ENV)
         if not token:
             print("⚠️ GH_MODELS_TOKEN 未设置")
             return []
 
-        headers = {"Authorization": f"token {token}"}
-
-        # 昨天 0 点（本地时间）
-        yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-        # 过去一周
+        headers = _get_headers(token)
         last_week = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
 
         queries = [
-            # 宽松：过去一周内，star > 200
-            (f"created:>={last_week} stars:>100 topic:ai",           "一周内 AI topic"),
-            (f"created:>={last_week} stars:>100 topic:llm",          "一周内 LLM topic"),
+            (f"created:>={last_week} stars:>100 topic:ai",                "一周内 AI topic"),
+            (f"created:>={last_week} stars:>100 topic:llm",               "一周内 LLM topic"),
             (f"created:>={last_week} stars:>100 LLM in:name,description", "一周内 LLM 关键词"),
         ]
 
@@ -56,15 +103,24 @@ class GitHubSearchScraper(BaseScraper):
                         continue
                     seen.add(url)
                     new_count += 1
+
+                    owner = r["owner"]["login"]
+                    repo = r["name"]
+
+                    # 抓取阶段直接获取 README 和语言信息
+                    lang_prefix = _fetch_languages(owner, repo, token)
+                    readme = _fetch_readme(owner, repo, token)
+                    body_text = lang_prefix + readme if readme else (r.get("description") or "")
+
                     items.append(RawItem(
                         title=r["full_name"],
                         original_url=url,
                         source_name=self.source_name,
                         source_type=self.source_type,
                         content_type=self.content_type,
-                        author=r["owner"]["login"],
-                        author_url=f"https://github.com/{r['owner']['login']}",
-                        body_text=r.get("description") or "",
+                        author=owner,
+                        author_url=f"https://github.com/{owner}",
+                        body_text=body_text,
                         raw_metrics={
                             "stars": r["stargazers_count"],
                             "forks": r["forks_count"],
