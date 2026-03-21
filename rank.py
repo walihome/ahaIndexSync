@@ -23,7 +23,7 @@ SCORING_GUIDE = (_persona_dir / "scoring.md").read_text(encoding="utf-8") if (_p
 IDEA_GUIDE = (_persona_dir / "idea.md").read_text(encoding="utf-8") if (_persona_dir / "idea.md").exists() else ""
 
 # 特殊标签每日名额
-TAG_SLOTS = {"gossip": 1, "deal": 1, "macro": 2}
+TAG_SLOTS = {"gossip": 1, "deal": 1, "macro": 2, "incident": 1, "lifestyle": 1}
 
 
 # ── 工具函数 ───────────────────────────────────────────────────
