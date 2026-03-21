@@ -28,14 +28,6 @@ TAG_SLOTS = {"gossip": 1, "deal": 1, "macro": 2, "incident": 1, "lifestyle": 1}
 
 # ── 工具函数 ───────────────────────────────────────────────────
 
-def get_sort_value(item: dict, sort_by: str) -> float:
-    metrics = {
-        "aha_index": item.get("aha_index", 0),
-        **(item.get("raw_metrics") or {}),
-    }
-    return metrics.get(sort_by, 0) or 0
-
-
 def build_display_row(item: dict, rank: int, today: str) -> dict:
     return {
         "processed_item_id": item["item_id"],
@@ -143,11 +135,23 @@ def ai_score_candidates(candidates: list[dict], group: str, limit: int) -> tuple
 
     client = OpenAI(base_url="https://api.moonshot.cn/v1", api_key=KIMI_API_KEY)
 
+    def _format_metrics(raw) -> str:
+        """raw_metrics 可能是 dict 或 JSON 字符串，统一转为可读文本"""
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except Exception:
+                return raw
+        if not raw:
+            return "{}"
+        return json.dumps(raw, ensure_ascii=False)
+
     candidate_text = "\n\n".join([
         f"[{i+1}] 来源:{c['source_name']}\n"
         f"类型:{c.get('content_type', '')}\n"
         f"标题:{c.get('processed_title') or c.get('raw_title')}\n"
-        f"摘要:{c.get('summary', '')}"
+        f"摘要:{c.get('summary', '')}\n"
+        f"参考指标:{_format_metrics(c.get('raw_metrics'))}"
         for i, c in enumerate(candidates)
     ])
 
@@ -159,10 +163,18 @@ def ai_score_candidates(candidates: list[dict], group: str, limit: int) -> tuple
 ## 评分体系
 {SCORING_GUIDE}
 
+## 数据源说明
+参考指标（stars, score 等）仅作为辅助参考，不能直接决定分数。注意不同来源的指标含义不同：
+- GitHub Trending：当前热门项目，stars 通常较高，但高 star 不等于高质量
+- GitHub Search：最近 7 天新创建的项目，stars 通常很低，但可能代表未来方向，不要因为 star 低就给低分
+- HackerNews：score 反映社区热度，但热度不等于对 AI 从业者的价值
+- Twitter：tweet_count 是聚合推文数，关注内容本身而非数量
+- 其他来源：参考指标仅供了解上下文
+
 ## 候选内容
 {candidate_text}
 
-请严格按照评分体系中的 5 个正向维度和 2 个扣分项打分，并判断是否需要标记特殊标签（gossip/deal/macro）。
+请严格按照评分体系中的 5 个正向维度和 2 个扣分项打分，并判断是否需要标记特殊标签（gossip/deal/macro/incident/lifestyle）。
 
 输出 JSON（不要输出任何其他内容）：
 {{
@@ -395,8 +407,6 @@ def main():
         group = group_cfg["group"]
         sources = group_cfg["sources"]
         limit = group_cfg["limit"]
-        sort_by = group_cfg["sort_by"]
-        ai_rerank_enabled = group_cfg["ai_rerank"]
 
         candidates = []
         for source in sources:
@@ -409,43 +419,19 @@ def main():
                 print(f"  [{group}] 无数据，跳过")
             continue
 
-        print(f"  [{group}] {len(candidates)} 条候选", end="")
+        print(f"  [{group}] {len(candidates)} 条候选 → AI 打分:")
+        selected, score_records = ai_score_candidates(candidates, group, limit)
+        all_ai_records.extend(score_records)
 
-        if ai_rerank_enabled:
-            print(f" → AI 打分:")
-            selected, score_records = ai_score_candidates(candidates, group, limit)
-            all_ai_records.extend(score_records)
+        for r in score_records:
+            action = "selected" if r["selected"] else "filtered_by_ai"
+            audit_updates.append(make_audit_update(
+                r["item"]["item_id"], group, action,
+                rank_score=r.get("ai_score"),
+                rank_detail=r.get("ai_detail"),
+            ))
 
-            for r in score_records:
-                action = "selected" if r["selected"] else "filtered_by_ai"
-                audit_updates.append(make_audit_update(
-                    r["item"]["item_id"], group, action,
-                    rank_score=r.get("ai_score"),
-                    rank_detail=r.get("ai_detail"),
-                ))
-
-            print(f"    → 入选 {len(selected)} 条")
-        else:
-            sorted_items = sorted(candidates, key=lambda x: get_sort_value(x, sort_by), reverse=True)
-            selected = sorted_items[:limit]
-            filtered = sorted_items[limit:]
-
-            print(f" → 按 {sort_by} 取 top {len(selected)} 条")
-
-            for item in selected:
-                sv = get_sort_value(item, sort_by)
-                audit_updates.append(make_audit_update(
-                    item["item_id"], group, "selected",
-                    rank_score=sv,
-                    rank_detail={"sort_by": sort_by, "comment": f"{sort_by}={sv}"},
-                ))
-            for item in filtered:
-                sv = get_sort_value(item, sort_by)
-                audit_updates.append(make_audit_update(
-                    item["item_id"], group, "filtered_by_limit",
-                    rank_score=sv,
-                    rank_detail={"sort_by": sort_by, "comment": f"{sort_by}={sv}，未进入 top {limit}"},
-                ))
+        print(f"    → 入选 {len(selected)} 条")
 
         for item in selected:
             display_rows.append(build_display_row(item, rank, today))
