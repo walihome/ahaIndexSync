@@ -36,7 +36,7 @@ def get_sort_value(item: dict, sort_by: str) -> float:
     return metrics.get(sort_by, 0) or 0
 
 
-def build_display_row(item: dict, rank: int, today: str, rank_group: str) -> dict:
+def build_display_row(item: dict, rank: int, today: str) -> dict:
     return {
         "processed_item_id": item["item_id"],
         "snapshot_date": today,
@@ -54,7 +54,6 @@ def build_display_row(item: dict, rank: int, today: str, rank_group: str) -> dic
         "display_metrics": item.get("display_metrics"),
         "raw_metrics": item.get("raw_metrics"),
         "rank": rank,
-        "rank_group": rank_group,
         "model": item.get("model"),
     }
 
@@ -310,7 +309,7 @@ def apply_tag_slots(
                 break
             replaced = display_rows.pop()
             item = tc["item"]
-            new_row = build_display_row(item, replaced["rank"], today, replaced.get("rank_group", "tag_slot"))
+            new_row = build_display_row(item, replaced["rank"], today)
             display_rows.append(new_row)
             selected_ids.add(item["item_id"])
             print(f"  🏷️ [{tag}] 保底替换: {item.get('processed_title', '')[:40]} (score={tc.get('ai_score', 0):.1f})")
@@ -449,7 +448,7 @@ def main():
                 ))
 
         for item in selected:
-            display_rows.append(build_display_row(item, rank, today, group))
+            display_rows.append(build_display_row(item, rank, today))
             rank += 1
 
     # 5. 特殊标签保底
