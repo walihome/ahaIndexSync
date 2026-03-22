@@ -49,6 +49,7 @@ def upsert_processed_item(item: RawItem, ai_data: dict, display_metrics: dict) -
         "aha_index": float(ai_data.get("aha_index", 0.5)),
         "expert_insight": ai_data.get("expert_insight"),
         "display_metrics": display_metrics,
+        "extra": item.extra,
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }).execute()
     if not result.data:
