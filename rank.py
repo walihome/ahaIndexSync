@@ -175,7 +175,7 @@ def ai_score_candidates(candidates: list[dict], group: str, limit: int) -> tuple
 ## 候选内容
 {candidate_text}
 
-请严格按照评分体系中的 5 个正向维度和 2 个扣分项打分，并判断是否需要标记特殊标签（gossip/deal/macro/incident/lifestyle）。
+请严格按照评分体系中的 5 个正向维度和 3 个扣分项打分，并判断是否需要标记特殊标签（gossip/deal/macro/incident/lifestyle）。
 
 输出 JSON（不要输出任何其他内容）：
 {{
@@ -189,6 +189,7 @@ def ai_score_candidates(candidates: list[dict], group: str, limit: int) -> tuple
       "audience_fit": 0,
       "marketing_penalty": 0,
       "duplicate_penalty": 0,
+      "political_penalty": 0,
       "total": 0,
       "tags": [],
       "comment": "一句话理由"
@@ -227,11 +228,13 @@ def ai_score_candidates(candidates: list[dict], group: str, limit: int) -> tuple
                     + s.get("audience_fit", 0)
                     - s.get("marketing_penalty", 0)
                     - s.get("duplicate_penalty", 0)
+                    - s.get("political_penalty", 0)
                 )
                 detail = {k: s.get(k, 0) for k in [
                     "actionability", "tech_depth", "impact",
                     "scarcity", "audience_fit",
                     "marketing_penalty", "duplicate_penalty",
+                    "political_penalty",
                 ]}
                 detail["comment"] = s.get("comment", "")
                 records.append({
