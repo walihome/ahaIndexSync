@@ -326,6 +326,9 @@ def apply_tag_slots(
             replaced = display_rows.pop()
             item = tc["item"]
             new_row = build_display_row(item, replaced["rank"], today)
+            ai_score = tc.get("ai_score")
+            if ai_score is not None:
+                new_row["aha_index"] = round(ai_score / 100, 2)
             display_rows.append(new_row)
             selected_ids.add(item["item_id"])
             print(f"  🏷️ [{tag}] 保底替换: {item.get('processed_title', '')[:40]} (score={tc.get('ai_score', 0):.1f})")
@@ -437,8 +440,14 @@ def main():
 
         print(f"    → 入选 {len(selected)} 条")
 
+        # 构建 display rows，用 rank_score 覆盖 aha_index
+        score_by_id = {r["item"]["item_id"]: r.get("ai_score", 0) for r in score_records}
         for item in selected:
-            display_rows.append(build_display_row(item, rank, today))
+            row = build_display_row(item, rank, today)
+            ai_score = score_by_id.get(item["item_id"])
+            if ai_score is not None:
+                row["aha_index"] = round(ai_score / 100, 2)  # 归一化到 0-1 保持前端兼容
+            display_rows.append(row)
             rank += 1
 
     # 5. 特殊标签保底
