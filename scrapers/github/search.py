@@ -9,9 +9,53 @@ from infra.models import BaseScraper, RawItem
 GITHUB_TOKEN_ENV = "GH_MODELS_TOKEN"
 FETCH_WINDOW_HOURS = 25 * 24  # 时间窗口
 
+# 噪音图片域名/路径关键词，这些不是项目的核心图
+_BADGE_PATTERNS = [
+    "shields.io", "badgen.net", "img.shields.io",
+    "badge", "ci-badge", "codecov.io", "travis-ci",
+    "github.com/workflows", "actions/workflows",
+    "hits.dwyl.com", "visitor-badge",
+]
+
 
 def _get_headers(token: str) -> dict:
     return {"Authorization": f"token {token}"}
+
+
+def _is_noise_image(url: str) -> bool:
+    """判断是否为 badge/shield 等噪音图片"""
+    url_lower = url.lower()
+    return any(p in url_lower for p in _BADGE_PATTERNS)
+
+
+def _extract_readme_images(raw_text: str, owner: str, repo: str) -> list[str]:
+    """
+    从 README 原文中提取有意义的图片 URL（排除 badge 等噪音）。
+    只取前 3 张，够用了。
+    """
+    if not raw_text:
+        return []
+
+    # Markdown 图片: ![alt](url)
+    md_images = re.findall(r'!\[.*?\]\((.*?)\)', raw_text)
+
+    # HTML 图片: <img src="url">
+    html_images = re.findall(r'<img[^>]+src=["\']([^"\']+)["\']', raw_text, re.IGNORECASE)
+
+    all_urls = md_images + html_images
+    result = []
+    for url in all_urls:
+        url = url.strip()
+        if not url or _is_noise_image(url):
+            continue
+        # 相对路径转绝对路径
+        if url.startswith("./") or (not url.startswith("http") and not url.startswith("//")):
+            url = f"https://raw.githubusercontent.com/{owner}/{repo}/refs/heads/main/{url.lstrip('./')}"
+        result.append(url)
+        if len(result) >= 3:
+            break
+
+    return result
 
 
 def _clean_readme(text: str) -> str:
@@ -24,7 +68,8 @@ def _clean_readme(text: str) -> str:
     return text.strip()
 
 
-def _fetch_readme(owner: str, repo: str, token: str) -> str:
+def _fetch_readme_raw(owner: str, repo: str, token: str) -> str:
+    """获取 README 原文（未清洗），用于提取图片"""
     try:
         headers = {"Accept": "application/vnd.github.raw"}
         if token:
@@ -36,9 +81,14 @@ def _fetch_readme(owner: str, repo: str, token: str) -> str:
         )
         if resp.status_code != 200:
             return ""
-        return _clean_readme(resp.text)
+        return resp.text
     except Exception:
         return ""
+
+
+def _fetch_readme(owner: str, repo: str, token: str) -> str:
+    raw = _fetch_readme_raw(owner, repo, token)
+    return _clean_readme(raw) if raw else ""
 
 
 def _fetch_languages(owner: str, repo: str, token: str) -> str:
@@ -56,6 +106,10 @@ def _fetch_languages(owner: str, repo: str, token: str) -> str:
         return f"主要语言：{', '.join(langs)}\n\n" if langs else ""
     except Exception:
         return ""
+
+
+def _build_star_history_url(owner: str, repo: str) -> str:
+    return f"https://api.star-history.com/svg?repos={owner}/{repo}&type=date"
 
 
 class GitHubSearchScraper(BaseScraper):
@@ -107,10 +161,13 @@ class GitHubSearchScraper(BaseScraper):
                     owner = r["owner"]["login"]
                     repo = r["name"]
 
-                    # 抓取阶段直接获取 README 和语言信息
+                    # 获取 README 原文 → 提取图片 → 清洗文本
+                    readme_raw = _fetch_readme_raw(owner, repo, token)
+                    readme_images = _extract_readme_images(readme_raw, owner, repo)
+                    readme_clean = _clean_readme(readme_raw) if readme_raw else ""
+
                     lang_prefix = _fetch_languages(owner, repo, token)
-                    readme = _fetch_readme(owner, repo, token)
-                    body_text = lang_prefix + readme if readme else (r.get("description") or "")
+                    body_text = lang_prefix + readme_clean if readme_clean else (r.get("description") or "")
 
                     items.append(RawItem(
                         title=r["full_name"],
@@ -132,6 +189,9 @@ class GitHubSearchScraper(BaseScraper):
                             "topics": r.get("topics", []),
                             "created_at": r.get("created_at"),
                             "search_query": label,
+                            "description": r.get("description") or "",
+                            "readme_images": readme_images,
+                            "star_history_url": _build_star_history_url(owner, repo),
                         },
                         published_at=datetime.fromisoformat(
                             r["created_at"].replace("Z", "+00:00")

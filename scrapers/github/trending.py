@@ -4,7 +4,10 @@ import os
 import requests
 from bs4 import BeautifulSoup
 from infra.models import BaseScraper, RawItem
-from .search import _fetch_readme, _fetch_languages
+from .search import (
+    _fetch_readme_raw, _clean_readme, _extract_readme_images,
+    _fetch_languages, _build_star_history_url,
+)
 
 GITHUB_TOKEN_ENV = "GH_MODELS_TOKEN"
 
@@ -46,12 +49,16 @@ class GitHubTrendingScraper(BaseScraper):
                         except Exception:
                             pass
 
-                # 抓取阶段直接获取 README 和语言信息
                 parts = full_name.split("/")
                 owner, repo = (parts[0], parts[1]) if len(parts) == 2 else ("", full_name)
+
+                # 获取 README 原文 → 提取图片 → 清洗文本
+                readme_raw = _fetch_readme_raw(owner, repo, token) if owner else ""
+                readme_images = _extract_readme_images(readme_raw, owner, repo) if readme_raw else []
+                readme_clean = _clean_readme(readme_raw) if readme_raw else ""
+
                 lang_prefix = _fetch_languages(owner, repo, token) if owner else ""
-                readme = _fetch_readme(owner, repo, token) if owner else ""
-                body_text = lang_prefix + readme if readme else description
+                body_text = lang_prefix + readme_clean if readme_clean else description
 
                 items.append(RawItem(
                     title=full_name,
@@ -62,6 +69,11 @@ class GitHubTrendingScraper(BaseScraper):
                     author=owner,
                     body_text=body_text,
                     raw_metrics={"stars": stars, "rank": rank},
+                    extra={
+                        "description": description,
+                        "readme_images": readme_images,
+                        "star_history_url": _build_star_history_url(owner, repo) if owner else "",
+                    },
                 ))
 
             print(f"  抓取到 {len(items)} 条")
