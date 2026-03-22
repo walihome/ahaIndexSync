@@ -15,6 +15,7 @@ _BADGE_PATTERNS = [
     "badge", "ci-badge", "codecov.io", "travis-ci",
     "github.com/workflows", "actions/workflows",
     "hits.dwyl.com", "visitor-badge",
+    "star-history.com",
 ]
 
 
