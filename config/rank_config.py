@@ -72,7 +72,13 @@ RANK_GROUPS = [
     },
     {
         "group": "国内资讯",
-        "sources": ["虎嗅", "V2EX", "奇客Solidot"],
+        "sources": ["虎嗅", "奇客Solidot"],
+        "limit": 1,
+        "must_include": False,
+    },
+    {
+        "group": "国内社区",
+        "sources": ["V2EX", "LINUX DO"],
         "limit": 1,
         "must_include": False,
     },
