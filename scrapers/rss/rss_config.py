@@ -21,35 +21,39 @@
 FETCH_WINDOW_HOURS = 25
 
 # ── Nitter 实例配置 ──────────────────────────────────────────
-# 按优先级排列，第一个失败会自动尝试下一个
+# 2026-03-22 状态：公共 Nitter 实例大面积死亡
+# nitter.net        → 404
+# xcancel.com       → 400
+# nitter.poast.org  → 403（偶尔可用）
+# nitter.privacyredirect.com → 503/空feed
+#
+# 只保留偶尔还能用的实例，其余移除减少无效等待
+# 长期方案：考虑迁移到 twscrape（已有 TwitterScraper）或其他 Twitter 数据源
 NITTER_INSTANCES = [
-    "https://nitter.net",
-    "https://xcancel.com",
     "https://nitter.poast.org",
-    "https://nitter.privacyredirect.com",
 ]
 
 # ── Twitter 账号列表 ─────────────────────────────────────────
-# 在这里集中管理要抓取的 Twitter 账号
-# url 字段留空，由 rss_scraper.py 根据 NITTER_INSTANCES 自动拼接
+# 注意：Nitter 公共实例极不稳定，大部分时候会全部失败
+# 高优先级账号建议同时配置在 TwitterScraper (twscrape) 中作为备份
 TWITTER_ACCOUNTS = [
     # AI 领域领袖
     {"twitter_user": "elonmusk",       "name": "Twitter @elonmusk",       "source_tag": "social"},
     {"twitter_user": "sama",           "name": "Twitter @sama",           "source_tag": "social"},
     {"twitter_user": "ylecun",         "name": "Twitter @ylecun",         "source_tag": "social"},
-    {"twitter_user": "kaboris",        "name": "Twitter @kaboris",        "source_tag": "social"},
 
     # AI 公司 / 研究机构
     {"twitter_user": "OpenAI",         "name": "Twitter @OpenAI",         "source_tag": "official_ai"},
     {"twitter_user": "AnthropicAI",    "name": "Twitter @AnthropicAI",    "source_tag": "official_ai"},
     {"twitter_user": "GoogleDeepMind", "name": "Twitter @GoogleDeepMind", "source_tag": "official_ai"},
-    {"twitter_user": "xaboratory",     "name": "Twitter @xaboratory",     "source_tag": "official_ai"},
 
     # AI 研究员 / 开发者
     {"twitter_user": "karpathy",       "name": "Twitter @karpathy",       "source_tag": "ai_research"},
-    {"twitter_user": "goodaboris",     "name": "Twitter @goodaboris",     "source_tag": "ai_research"},
-    {"twitter_user": "jimfan",         "name": "Twitter @jimfan",         "source_tag": "ai_research"},
-    {"twitter_user": "swaboris",       "name": "Twitter @swaboris",       "source_tag": "ai_research"},
+    {"twitter_user": "drjimfan",       "name": "Twitter @drjimfan",       "source_tag": "ai_research"},
+
+    # 以下账号已移除（用户名无效或持续失败）：
+    # kaboris, goodaboris, swaboris → 非真实 Twitter handle
+    # xaboratory → 持续不可用
 ]
 
 # 把 TWITTER_ACCOUNTS 转成统一的 feed 配置格式
