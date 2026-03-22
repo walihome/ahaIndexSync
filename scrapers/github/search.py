@@ -109,7 +109,7 @@ def _fetch_languages(owner: str, repo: str, token: str) -> str:
 
 
 def _build_star_history_url(owner: str, repo: str) -> str:
-    return f"https://api.star-history.com/svg?repos={owner}/{repo}&type=date"
+    return f"https://api.star-history.com/image?repos={owner}/{repo}&type=date&legend=top-left"
 
 
 class GitHubSearchScraper(BaseScraper):

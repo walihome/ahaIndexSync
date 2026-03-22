@@ -45,6 +45,7 @@ def build_display_row(item: dict, rank: int, today: str) -> dict:
         "expert_insight": item.get("expert_insight"),
         "display_metrics": item.get("display_metrics"),
         "raw_metrics": item.get("raw_metrics"),
+        "extra": item.get("extra"),
         "rank": rank,
         "model": item.get("model"),
     }
