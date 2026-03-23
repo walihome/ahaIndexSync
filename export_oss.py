@@ -115,4 +115,4 @@ def export_to_oss():
 
 
 if __name__ == "__main__":
-    export_oss()
+    export_to_oss()
