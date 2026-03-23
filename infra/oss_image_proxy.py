@@ -22,7 +22,7 @@ from infra.oss_client import put_bytes, exists
 # 配置
 # ---------------------------------------------------------------------------
 
-_DEFAULT_PREFIX = "test"              # OSS 路径前缀
+_DEFAULT_PREFIX = "image"              # OSS 路径前缀
 _TIMEOUT = 30                         # HTTP 下载超时
 _USER_AGENT = "AhaIndex-ImageProxy/1.0"
 
@@ -69,7 +69,7 @@ def _md5_short(s: str, length: int = 8) -> str:
 def _make_object_key(prefix: str, sub_dir: str, filename: str, date_str: str | None = None) -> str:
     """
     拼 OSS object key: {prefix}/{date}/{sub_dir}/{filename}
-    例: test/20260322/github/langchain-ai-langchain-a1b2c3d4.jpg
+    例: image/20260322/github/langchain-ai-langchain-a1b2c3d4.jpg
     """
     date_str = date_str or datetime.now().strftime("%Y%m%d")
     return f"{prefix}/{date_str}/{sub_dir}/{filename}"
@@ -177,7 +177,7 @@ def proxy_star_history(
 
     示例:
         url = proxy_star_history("langchain-ai/langchain")
-        # → https://dooocs.oss-cn-hangzhou.aliyuncs.com/test/20260322/star-history/langchain-ai-langchain.svg
+        # → https://amazingindex.oss-cn-hangzhou.aliyuncs.com/test/20260322/star-history/langchain-ai-langchain.svg
     """
     safe_name = repo_full_name.replace("/", "-")
     date_str = date_str or datetime.now().strftime("%Y%m%d")
