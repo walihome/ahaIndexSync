@@ -7,8 +7,9 @@
 环境变量:
     OSS_ACCESS_KEY_ID
     OSS_ACCESS_KEY_SECRET
-    OSS_BUCKET    (默认: dooocs)
-    OSS_ENDPOINT  (默认: oss-cn-hangzhou.aliyuncs.com)
+    OSS_BUCKET         (默认: dooocs)
+    OSS_ENDPOINT       (默认: oss-cn-hangzhou.aliyuncs.com)
+    OSS_CUSTOM_DOMAIN  (可选，如: oss.amazingindex.com，设置后 URL 走自定义域名)
 """
 
 import os
@@ -39,10 +40,13 @@ def _get_bucket(
 
 
 def _build_public_url(bucket: oss2.Bucket, object_key: str) -> str:
-    """拼接公开访问 URL。"""
-    host = bucket.endpoint.replace("https://", "").replace("http://", "")
-    # 对 object_key 中的路径做 URL 编码，但保留 /
+    """拼接公开访问 URL，优先使用自定义域名。"""
     safe_key = "/".join(quote(seg, safe="") for seg in object_key.split("/"))
+    custom_domain = os.getenv("OSS_CUSTOM_DOMAIN", "")
+    if custom_domain:
+        domain = custom_domain.rstrip("/")
+        return f"https://{domain}/{safe_key}"
+    host = bucket.endpoint.replace("https://", "").replace("http://", "")
     return f"https://{bucket.bucket_name}.{host}/{safe_key}"
 
 
