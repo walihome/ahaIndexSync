@@ -7,7 +7,7 @@
 环境变量:
     OSS_ACCESS_KEY_ID
     OSS_ACCESS_KEY_SECRET
-    OSS_BUCKET         (默认: dooocs)
+    OSS_BUCKET         (默认: amazingindex)
     OSS_ENDPOINT       (默认: oss-cn-hangzhou.aliyuncs.com)
     OSS_CUSTOM_DOMAIN  (可选，如: oss.amazingindex.com，设置后 URL 走自定义域名)
 """
@@ -32,7 +32,7 @@ def _get_bucket(
     """构建 OSS Bucket 实例，参数优先入参，fallback 环境变量。"""
     ak = access_key_id or os.environ["OSS_ACCESS_KEY_ID"]
     sk = access_key_secret or os.environ["OSS_ACCESS_KEY_SECRET"]
-    bkt = bucket_name or os.getenv("OSS_BUCKET", "dooocs")
+    bkt = bucket_name or os.getenv("OSS_BUCKET", "amazingindex")
     ep = endpoint or os.getenv("OSS_ENDPOINT", "oss-cn-hangzhou.aliyuncs.com")
     if not ep.startswith("http"):
         ep = f"https://{ep}"
