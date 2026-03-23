@@ -7,3 +7,4 @@ twscrape>=0.12.0
 feedparser>=6.0.0
 trafilatura>=1.6.0
 lxml>=5.0.0
+oss2
