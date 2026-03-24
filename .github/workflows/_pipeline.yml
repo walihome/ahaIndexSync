@@ -139,3 +139,5 @@ jobs:
           OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
           TABLE_SUFFIX: ${{ inputs.table_suffix }}
         run: python export_oss.py
+      - name: Trigger Vercel rebuild
+        run: curl -X POST "${{ secrets.VERCEL_DEPLOY_HOOK }}"
