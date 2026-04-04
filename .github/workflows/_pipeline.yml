@@ -195,3 +195,12 @@ jobs:
           client.refresh_object_caches(request)
           print(f"✅ CDN refreshed: {len(urls)} URLs")
           EOF
+
+      - name: Generate sitemap
+        if: ${{ inputs.table_suffix == '' }}
+        env:
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          OSS_ENDPOINT: oss-cn-hangzhou.aliyuncs.com
+          OSS_BUCKET: amazingindex
+        run: python scripts/generate_sitemap.py
