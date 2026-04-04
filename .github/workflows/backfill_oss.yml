@@ -1,0 +1,80 @@
+name: Backfill OSS Daily JSON
+
+on:
+  workflow_dispatch:
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Backfill all daily JSON to OSS
+        env:
+          TZ: Asia/Shanghai
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+        run: |
+          python3 - <<'PYEOF'
+          import os, json
+          from supabase import create_client
+          from infra.oss_client import put_bytes
+
+          sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"])
+
+          # 1. 获取所有日期
+          resp = sb.table("display_items").select("snapshot_date").order("snapshot_date", desc=True).execute()
+          all_dates = sorted(set(row["snapshot_date"] for row in (resp.data or [])))
+          print(f"共 {len(all_dates)} 个日期: {all_dates[0]} ~ {all_dates[-1]}")
+
+          # 2. 逐天导出
+          for date_str in all_dates:
+              items_resp = (
+                  sb.table("display_items")
+                  .select("*")
+                  .eq("snapshot_date", date_str)
+                  .order("rank", desc=False)
+                  .execute()
+              )
+              items = items_resp.data or []
+              if not items:
+                  print(f"  ⏭️  {date_str} 无数据")
+                  continue
+
+              payload = json.dumps({"snapshot_date": date_str, "items": items}, ensure_ascii=False)
+              year, month = date_str[:4], date_str[5:7]
+
+              # daily JSON
+              key = f"api/daily/{year}/{month}/{date_str}.json"
+              put_bytes(payload.encode("utf-8"), key, "application/json; charset=utf-8")
+              print(f"  ✅ {key} ({len(items)} items)")
+
+          # 3. 更新 latest.json（用最新日期的数据）
+          latest_date = all_dates[-1]
+          latest_resp = (
+              sb.table("display_items")
+              .select("*")
+              .eq("snapshot_date", latest_date)
+              .order("rank", desc=False)
+              .execute()
+          )
+          latest_payload = json.dumps({"snapshot_date": latest_date, "items": latest_resp.data or []}, ensure_ascii=False)
+          put_bytes(latest_payload.encode("utf-8"), "api/latest.json", "application/json; charset=utf-8")
+          print(f"\n  ✅ api/latest.json → {latest_date}")
+
+          # 4. 更新 dates.json
+          dates_payload = json.dumps({"dates": list(reversed(all_dates))}, ensure_ascii=False)
+          put_bytes(dates_payload.encode("utf-8"), "api/dates.json", "application/json; charset=utf-8")
+          print(f"  ✅ api/dates.json ({len(all_dates)} dates)")
+
+          print(f"\n🎉 回填完成")
+          PYEOF
