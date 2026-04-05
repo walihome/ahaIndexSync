@@ -192,15 +192,22 @@ jobs:
           )
           client = Client(config)
 
-          urls = [
-              'https://www.amazingindex.com/',
-              'https://www.amazingindex.com/index.html',
-          ]
-
-          request = cdn_models.RefreshObjectCachesRequest(
-              object_path='\n'.join(urls),
+          # 刷新首页
+          file_request = cdn_models.RefreshObjectCachesRequest(
+              object_path='\n'.join([
+                  'https://www.amazingindex.com/',
+                  'https://www.amazingindex.com/index.html',
+              ]),
               object_type='File'
           )
-          client.refresh_object_caches(request)
-          print(f"✅ CDN refreshed: {len(urls)} URLs")
+          client.refresh_object_caches(file_request)
+
+          # 刷新 API 数据目录
+          dir_request = cdn_models.RefreshObjectCachesRequest(
+              object_path='https://www.amazingindex.com/api/',
+              object_type='Directory'
+          )
+          client.refresh_object_caches(dir_request)
+
+          print("✅ CDN refreshed: homepage + /api/")
           EOF
