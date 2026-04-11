@@ -5,7 +5,6 @@ import re
 import requests
 from datetime import datetime, timedelta
 from infra.models import BaseScraper, RawItem
-from infra.oss_image_proxy import proxy_github_images, proxy_star_history
 
 GITHUB_TOKEN_ENV = "GH_MODELS_TOKEN"
 FETCH_WINDOW_HOURS = 25 * 24  # 时间窗口
@@ -110,25 +109,8 @@ def _fetch_languages(owner: str, repo: str, token: str) -> str:
         return ""
 
 
-def _proxy_images_to_oss(readme_images: list[str], owner: str, repo: str) -> list[str]:
-    """将 README 图片代理到 OSS，失败则保留原链接"""
-    if not readme_images:
-        return []
-    try:
-        return proxy_github_images(readme_images, owner, repo)
-    except Exception as e:
-        print(f"⚠️ OSS 图片代理整体失败，保留原链接: {e}")
-        return readme_images
-
-
-def _proxy_star_history_to_oss(owner: str, repo: str) -> str:
-    """将 star-history 图代理到 OSS，失败则 fallback 到原始链接"""
-    fallback = f"https://api.star-history.com/svg?repos={owner}/{repo}&type=Date"
-    try:
-        return proxy_star_history(f"{owner}/{repo}")
-    except Exception as e:
-        print(f"⚠️ Star History OSS 代理失败，使用原链接: {e}")
-        return fallback
+def _star_history_url(owner: str, repo: str) -> str:
+    return f"https://api.star-history.com/svg?repos={owner}/{repo}&type=Date"
 
 
 class GitHubSearchScraper(BaseScraper):
@@ -185,9 +167,7 @@ class GitHubSearchScraper(BaseScraper):
                     readme_images = _extract_readme_images(readme_raw, owner, repo)
                     readme_clean = _clean_readme(readme_raw) if readme_raw else ""
 
-                    # 图片代理到 OSS（GitHub 图片 + star-history）
-                    oss_readme_images = _proxy_images_to_oss(readme_images, owner, repo)
-                    oss_star_history_url = _proxy_star_history_to_oss(owner, repo)
+                    star_history_url = _star_history_url(owner, repo)
 
                     lang_prefix = _fetch_languages(owner, repo, token)
                     body_text = lang_prefix + readme_clean if readme_clean else (r.get("description") or "")
@@ -213,8 +193,8 @@ class GitHubSearchScraper(BaseScraper):
                             "created_at": r.get("created_at"),
                             "search_query": label,
                             "description": r.get("description") or "",
-                            "readme_images": oss_readme_images,
-                            "star_history_url": oss_star_history_url,
+                            "readme_images": readme_images,
+                            "star_history_url": star_history_url,
                         },
                         published_at=datetime.fromisoformat(
                             r["created_at"].replace("Z", "+00:00")

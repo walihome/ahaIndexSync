@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 from infra.models import BaseScraper, RawItem
 from .search import (
     _fetch_readme_raw, _clean_readme, _extract_readme_images,
-    _fetch_languages, _proxy_images_to_oss, _proxy_star_history_to_oss,
+    _fetch_languages, _star_history_url,
 )
 
 GITHUB_TOKEN_ENV = "GH_MODELS_TOKEN"
@@ -57,8 +57,7 @@ class GitHubTrendingScraper(BaseScraper):
                 readme_images = _extract_readme_images(readme_raw, owner, repo) if readme_raw else []
                 readme_clean = _clean_readme(readme_raw) if readme_raw else ""
 
-                oss_readme_images = _proxy_images_to_oss(readme_images, owner, repo) if readme_images else []
-                oss_star_history_url = _proxy_star_history_to_oss(owner, repo) if owner else ""
+                star_history = _star_history_url(owner, repo) if owner else ""
 
                 lang_prefix = _fetch_languages(owner, repo, token) if owner else ""
                 body_text = lang_prefix + readme_clean if readme_clean else description
@@ -74,8 +73,8 @@ class GitHubTrendingScraper(BaseScraper):
                     raw_metrics={"stars": stars, "rank": rank},
                     extra={
                         "description": description,
-                        "readme_images": oss_readme_images,
-                        "star_history_url": oss_star_history_url,
+                        "readme_images": readme_images,
+                        "star_history_url": star_history,
                     },
                 ))
 
