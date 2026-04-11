@@ -227,7 +227,7 @@ Top Story 列表：
                 'Content-Type': 'application/json',
             },
             json={
-                'model': 'moonshot-v1-8k',
+                'model': 'kimi-k2.5',
                 'messages': [{'role': 'user', 'content': prompt}],
                 'temperature': 0.3,
             },
