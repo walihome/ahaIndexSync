@@ -62,13 +62,13 @@ def main():
             lastmod=date, changefreq='never', priority='0.7'
         ))
 
-        # 文章页
+        # 文章详情页（Astro：每条独立路由 /article/{id}，不再挂在 /daily/... 下）
         for item in items:
             pid = item.get('processed_item_id', '')
             if not pid:
                 continue
             urls.append(make_url(
-                f'{SITE_URL}/daily/{date}/article/{pid}',
+                f'{SITE_URL}/article/{pid}',
                 lastmod=date, changefreq='never', priority='0.6'
             ))
 

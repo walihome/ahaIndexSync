@@ -209,5 +209,12 @@ jobs:
           )
           client.refresh_object_caches(dir_request)
 
-          print("✅ CDN refreshed: homepage + /api/")
+          # 文章详情页目录（Astro /article/[id]）
+          article_dir_request = cdn_models.RefreshObjectCachesRequest(
+              object_path='https://www.amazingindex.com/article/',
+              object_type='Directory'
+          )
+          client.refresh_object_caches(article_dir_request)
+
+          print("✅ CDN refreshed: homepage + /api/ + /article/")
           EOF
