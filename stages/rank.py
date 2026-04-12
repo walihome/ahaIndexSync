@@ -107,56 +107,70 @@ def _ai_score(candidates: list[dict], group: str, limit: int, config: PipelineCo
 
     system_cfg = config.get_prompt("rank_system")
     client = OpenAI(base_url=prompt_cfg.model_base_url, api_key=api_key)
+    temperature = prompt_cfg.temperature
+    messages = [
+        {"role": "system", "content": system_cfg.template if system_cfg else "You are a JSON-only scorer."},
+        {"role": "user", "content": prompt},
+    ]
 
-    try:
-        response = client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": system_cfg.template if system_cfg else "You are a JSON-only scorer."},
-                {"role": "user", "content": prompt},
-            ],
-            model=prompt_cfg.model,
-            temperature=prompt_cfg.temperature,
-            response_format={"type": "json_object"},
-        )
-        result = json.loads(response.choices[0].message.content)
-        scores = result.get("scores", [])
-        score_map = {}
-        for s in scores:
-            idx = s.get("index", 0) - 1
-            if 0 <= idx < len(candidates):
-                score_map[idx] = s
+    max_attempts = prompt_cfg.max_retries if hasattr(prompt_cfg, 'max_retries') else 2
+    for attempt in range(max_attempts):
+        try:
+            response = client.chat.completions.create(
+                messages=messages,
+                model=prompt_cfg.model,
+                temperature=temperature,
+                response_format={"type": "json_object"},
+            )
+            result = json.loads(response.choices[0].message.content)
+            scores = result.get("scores", [])
+            score_map = {}
+            for s in scores:
+                idx = s.get("index", 0) - 1
+                if 0 <= idx < len(candidates):
+                    score_map[idx] = s
 
-        records = []
-        for i, item in enumerate(candidates):
-            s = score_map.get(i)
-            if s:
-                total = (s.get("actionability", 0) + s.get("tech_depth", 0) + s.get("impact", 0) + s.get("scarcity", 0) + s.get("audience_fit", 0)
-                         - s.get("marketing_penalty", 0) - s.get("duplicate_penalty", 0) - s.get("political_penalty", 0))
-                detail = {k: s.get(k, 0) for k in ["actionability", "tech_depth", "impact", "scarcity", "audience_fit", "marketing_penalty", "duplicate_penalty", "political_penalty"]}
-                detail["comment"] = s.get("comment", "")
-                records.append({"item": item, "ai_score": total, "ai_detail": detail, "tags": s.get("tags", []), "comment": s.get("comment", ""), "selected": False})
-            else:
-                records.append({"item": item, "ai_score": item.get("aha_index", 0) * 100, "ai_detail": {"comment": "AI 未返回该条打分"}, "tags": [], "comment": "", "selected": False})
+            records = []
+            for i, item in enumerate(candidates):
+                s = score_map.get(i)
+                if s:
+                    total = (s.get("actionability", 0) + s.get("tech_depth", 0) + s.get("impact", 0) + s.get("scarcity", 0) + s.get("audience_fit", 0)
+                             - s.get("marketing_penalty", 0) - s.get("duplicate_penalty", 0) - s.get("political_penalty", 0))
+                    detail = {k: s.get(k, 0) for k in ["actionability", "tech_depth", "impact", "scarcity", "audience_fit", "marketing_penalty", "duplicate_penalty", "political_penalty"]}
+                    detail["comment"] = s.get("comment", "")
+                    records.append({"item": item, "ai_score": total, "ai_detail": detail, "tags": s.get("tags", []), "comment": s.get("comment", ""), "selected": False})
+                else:
+                    records.append({"item": item, "ai_score": item.get("aha_index", 0) * 100, "ai_detail": {"comment": "AI 未返回该条打分"}, "tags": [], "comment": "", "selected": False})
 
-        records.sort(key=lambda r: r["ai_score"] or 0, reverse=True)
-        for i in range(min(limit, len(records))):
-            records[i]["selected"] = True
+            records.sort(key=lambda r: r["ai_score"] or 0, reverse=True)
+            for i in range(min(limit, len(records))):
+                records[i]["selected"] = True
 
-        selected = [r["item"] for r in records if r["selected"]]
-        for r in records:
-            flag = "✅" if r["selected"] else "  "
-            title = (r["item"].get("processed_title") or r["item"].get("raw_title", ""))[:40]
-            tags_str = f" [{','.join(r['tags'])}]" if r.get("tags") else ""
-            print(f"    {flag} {r['ai_score']:5.1f} | {title}{tags_str}")
+            selected = [r["item"] for r in records if r["selected"]]
+            for r in records:
+                flag = "✅" if r["selected"] else "  "
+                title = (r["item"].get("processed_title") or r["item"].get("raw_title", ""))[:40]
+                tags_str = f" [{','.join(r['tags'])}]" if r.get("tags") else ""
+                print(f"    {flag} {r['ai_score']:5.1f} | {title}{tags_str}")
 
-        time.sleep(prompt_cfg.request_interval)
-        return selected, records
+            time.sleep(prompt_cfg.request_interval)
+            return selected, records
 
-    except Exception as e:
-        print(f"  ⚠️ AI 打分失败 ({group}): {e}，降级为 aha_index 排序")
-        sorted_items = sorted(candidates, key=lambda x: x.get("aha_index", 0), reverse=True)
-        records = [{"item": item, "ai_score": None, "ai_detail": {"comment": f"异常: {str(e)[:100]}"}, "tags": [], "comment": "", "selected": i < limit} for i, item in enumerate(sorted_items)]
-        return sorted_items[:limit], records
+        except Exception as e:
+            err_str = str(e)
+            if "invalid temperature" in err_str and temperature != 1.0:
+                print(f"  ⚠️ 模型不支持 temperature={temperature}，回退到 1.0 重试")
+                temperature = 1.0
+                continue
+
+            print(f"  ⚠️ AI 打分失败 ({group}): {e}，降级为 aha_index 排序")
+            sorted_items = sorted(candidates, key=lambda x: x.get("aha_index", 0), reverse=True)
+            records = [{"item": item, "ai_score": None, "ai_detail": {"comment": f"异常: {str(e)[:100]}"}, "tags": [], "comment": "", "selected": i < limit} for i, item in enumerate(sorted_items)]
+            return sorted_items[:limit], records
+
+    sorted_items = sorted(candidates, key=lambda x: x.get("aha_index", 0), reverse=True)
+    records = [{"item": item, "ai_score": None, "ai_detail": {"comment": "重试耗尽"}, "tags": [], "comment": "", "selected": i < limit} for i, item in enumerate(sorted_items)]
+    return sorted_items[:limit], records
 
 
 def _apply_tag_slots(display_rows, all_records, tag_slots: list[TagSlotConfig], today: str) -> list[dict]:
