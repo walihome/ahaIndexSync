@@ -35,6 +35,15 @@ def run_pipeline(
     sb = get_supabase()
     config = load_config(sb)
 
+    if not scraper_name and not config.scrapers:
+        print("❌ 配置异常: scraper_configs 表中没有启用的 scraper！")
+        print("   请先执行 sql/002_seed_data.sql 初始化配置数据")
+        print("   或检查 Supabase 中 scraper_configs 表是否有 enabled=true 的记录")
+        raise RuntimeError("No enabled scrapers found in scraper_configs table. Run sql/002_seed_data.sql to seed config data.")
+
+    if not config.rank_groups:
+        print("⚠️ 配置警告: rank_group_configs 表为空，Rank 阶段将不会产出 display 数据")
+
     if scraper_name:
         config.scrapers = [s for s in config.scrapers if s.name == scraper_name or s.scraper_type == scraper_name]
         if not config.scrapers:
