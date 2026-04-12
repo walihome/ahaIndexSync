@@ -14,6 +14,7 @@ from pipeline.config_loader import PipelineConfig, RankGroupConfig, TagSlotConfi
 from infra.db import table_names
 from infra.time_utils import today_str
 from infra.link_checker import is_accessible
+from infra.llm import _build_params
 
 
 def _build_display_row(item: dict, rank: int, today: str) -> dict:
@@ -107,7 +108,7 @@ def _ai_score(candidates: list[dict], group: str, limit: int, config: PipelineCo
 
     system_cfg = config.get_prompt("rank_system")
     client = OpenAI(base_url=prompt_cfg.model_base_url, api_key=api_key)
-    temperature = prompt_cfg.temperature
+    extra_params = _build_params(prompt_cfg.model, prompt_cfg.temperature)
     messages = [
         {"role": "system", "content": system_cfg.template if system_cfg else "You are a JSON-only scorer."},
         {"role": "user", "content": prompt},
@@ -119,8 +120,8 @@ def _ai_score(candidates: list[dict], group: str, limit: int, config: PipelineCo
             response = client.chat.completions.create(
                 messages=messages,
                 model=prompt_cfg.model,
-                temperature=temperature,
                 response_format={"type": "json_object"},
+                **extra_params,
             )
             result = json.loads(response.choices[0].message.content)
             scores = result.get("scores", [])
@@ -158,9 +159,9 @@ def _ai_score(candidates: list[dict], group: str, limit: int, config: PipelineCo
 
         except Exception as e:
             err_str = str(e)
-            if "invalid temperature" in err_str and temperature != 1.0:
-                print(f"  ⚠️ 模型不支持 temperature={temperature}，回退到 1.0 重试")
-                temperature = 1.0
+            if "invalid temperature" in err_str and "temperature" in extra_params:
+                print(f"  ⚠️ 模型不支持自定义 temperature，切换为 thinking model 模式重试")
+                extra_params = {"thinking": {"type": "disabled"}}
                 continue
 
             print(f"  ⚠️ AI 打分失败 ({group}): {e}，降级为 aha_index 排序")

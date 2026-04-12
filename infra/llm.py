@@ -6,12 +6,18 @@ import time
 from openai import OpenAI
 from pipeline.config_loader import PromptConfig
 
+THINKING_MODELS = {"kimi-k2.5", "kimi-k2-thinking", "kimi-k2-thinking-turbo"}
 
-def _safe_temperature(temperature: float, err_str: str) -> float | None:
-    """If the model rejects the temperature, fall back to 1.0 (required by some models like kimi-k2.5)."""
-    if "invalid temperature" in err_str and temperature != 1.0:
-        return 1.0
-    return None
+
+def _is_thinking_model(model: str) -> bool:
+    return model in THINKING_MODELS
+
+
+def _build_params(model: str, temperature: float) -> dict:
+    """Thinking models (kimi-k2.5 etc.) don't accept custom temperature; disable thinking for pure JSON output."""
+    if _is_thinking_model(model):
+        return {"thinking": {"type": "disabled"}}
+    return {"temperature": temperature}
 
 
 def call_llm(
@@ -25,7 +31,7 @@ def call_llm(
         return None
 
     client = OpenAI(base_url=config.model_base_url, api_key=api_key)
-    temperature = config.temperature
+    extra_params = _build_params(config.model, config.temperature)
 
     for attempt in range(config.max_retries):
         try:
@@ -35,8 +41,8 @@ def call_llm(
                     {"role": "user", "content": prompt},
                 ],
                 model=config.model,
-                temperature=temperature,
                 response_format={"type": "json_object"},
+                **extra_params,
             )
             result = json.loads(response.choices[0].message.content)
             result["model"] = config.model
@@ -46,10 +52,9 @@ def call_llm(
         except Exception as e:
             err_str = str(e)
 
-            fallback_temp = _safe_temperature(temperature, err_str)
-            if fallback_temp is not None:
-                print(f"  ⚠️ 模型不支持 temperature={temperature}，回退到 {fallback_temp}")
-                temperature = fallback_temp
+            if "invalid temperature" in err_str and "temperature" in extra_params:
+                print(f"  ⚠️ 模型不支持自定义 temperature，切换为 thinking model 模式重试")
+                extra_params = {"thinking": {"type": "disabled"}}
                 continue
 
             is_rate_limit = "429" in err_str or "overloaded" in err_str
@@ -79,6 +84,7 @@ def call_llm_raw(
         return None
 
     client = OpenAI(base_url=base_url, api_key=api_key)
+    extra_params = _build_params(model, temperature)
 
     for _retry in range(2):
         try:
@@ -88,16 +94,15 @@ def call_llm_raw(
                     {"role": "user", "content": prompt},
                 ],
                 model=model,
-                temperature=temperature,
                 response_format={"type": "json_object"},
+                **extra_params,
             )
             return json.loads(response.choices[0].message.content)
         except Exception as e:
             err_str = str(e)
-            fallback_temp = _safe_temperature(temperature, err_str)
-            if fallback_temp is not None:
-                print(f"  ⚠️ 模型不支持 temperature={temperature}，回退到 {fallback_temp}")
-                temperature = fallback_temp
+            if "invalid temperature" in err_str and "temperature" in extra_params:
+                print(f"  ⚠️ 模型不支持自定义 temperature，切换为 thinking model 模式重试")
+                extra_params = {"thinking": {"type": "disabled"}}
                 continue
             print(f"⚠️ LLM 调用失败: {e}")
             return None

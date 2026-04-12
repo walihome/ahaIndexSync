@@ -8,6 +8,7 @@ from collections import Counter
 
 import requests
 from supabase import Client
+from infra.llm import _is_thinking_model
 from pipeline.config_loader import PipelineConfig
 
 
@@ -150,10 +151,15 @@ def _generate_summary(top_stories: list[str], year: int, month: int, avg_score: 
     )
 
     try:
+        body = {'model': prompt_cfg.model, 'messages': [{'role': 'user', 'content': prompt}]}
+        if _is_thinking_model(prompt_cfg.model):
+            body['thinking'] = {'type': 'disabled'}
+        else:
+            body['temperature'] = prompt_cfg.temperature
         resp = requests.post(
             f"{prompt_cfg.model_base_url}/chat/completions",
             headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
-            json={'model': prompt_cfg.model, 'messages': [{'role': 'user', 'content': prompt}], 'temperature': prompt_cfg.temperature},
+            json=body,
             timeout=30,
         )
         resp.raise_for_status()
