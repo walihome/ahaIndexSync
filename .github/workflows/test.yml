@@ -8,4 +8,5 @@ jobs:
     uses: ./.github/workflows/_pipeline.yml
     with:
       table_suffix: "_test"
+      run_mode: "test"
     secrets: inherit

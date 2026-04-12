@@ -8,35 +8,17 @@ on:
         type: string
         default: ""
       scraper_name:
-        description: '指定单个 scraper 类名，为空时跑全量'
+        description: '指定 scraper name，为空时跑全量'
         type: string
         default: ""
+      run_mode:
+        description: '运行模式: daily / test / manual'
+        type: string
+        default: "daily"
 
 jobs:
-  cleanup:
+  run:
     runs-on: ubuntu-latest
-    if: ${{ inputs.table_suffix != '' }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Cleanup test tables
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          TABLE_SUFFIX: ${{ inputs.table_suffix }}
-        run: python cleanup.py
-
-  scrape:
-    runs-on: ubuntu-latest
-    needs: cleanup
-    if: always()
     steps:
       - uses: actions/checkout@v4
 
@@ -58,81 +40,14 @@ jobs:
             echo "⚠️ TWSCRAPE_DB_BASE64 未设置，Twitter 抓取将跳过"
           fi
 
-      - name: Run scrape
+      - name: Run pipeline
         env:
           TZ: Asia/Shanghai
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GH_MODELS_TOKEN: ${{ secrets.GH_MODELS_TOKEN }}
+          KIMI_API_KEY: ${{ secrets.KIMI_API_KEY }}
           TABLE_SUFFIX: ${{ inputs.table_suffix }}
+          RUN_MODE: ${{ inputs.run_mode }}
           SCRAPER_NAME: ${{ inputs.scraper_name }}
-        run: python scrape.py
-
-  process:
-    runs-on: ubuntu-latest
-    needs: scrape
-    if: always()
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Run process
-        env:
-          TZ: Asia/Shanghai
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          KIMI_API_KEY: ${{ secrets.KIMI_API_KEY }}
-          GH_MODELS_TOKEN: ${{ secrets.GH_MODELS_TOKEN }}
-          TABLE_SUFFIX: ${{ inputs.table_suffix }}
-        run: python process.py
-
-  rank:
-    runs-on: ubuntu-latest
-    needs: process
-    if: always()
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Run rank
-        env:
-          TZ: Asia/Shanghai
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          KIMI_API_KEY: ${{ secrets.KIMI_API_KEY }}
-          TABLE_SUFFIX: ${{ inputs.table_suffix }}
-        run: python rank.py
-
-  archive:
-    runs-on: ubuntu-latest
-    needs: rank
-    if: ${{ always() && inputs.table_suffix == '' }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Generate archive data
-        env:
-          TZ: Asia/Shanghai
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          KIMI_API_KEY: ${{ secrets.KIMI_API_KEY }}
-        run: python generate_archives.py
+        run: python main.py --mode "$RUN_MODE" --suffix "$TABLE_SUFFIX" --scraper "$SCRAPER_NAME"

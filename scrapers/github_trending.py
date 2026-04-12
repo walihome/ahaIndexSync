@@ -1,29 +1,25 @@
-# scrapers/github/trending.py
+# scrapers/github_trending.py
 
 import os
 import requests
 from bs4 import BeautifulSoup
 from infra.models import BaseScraper, RawItem
-from .search import (
+from scrapers.registry import register
+from scrapers.github_search import (
     _fetch_readme_raw, _clean_readme, _extract_readme_images,
     _fetch_languages, _star_history_url,
 )
 
-GITHUB_TOKEN_ENV = "GH_MODELS_TOKEN"
 
-
-class GitHubTrendingScraper(BaseScraper):
-    source_name = "GitHub Trending"
-    source_type = "REPO"
-    content_type = "repo"
-
+@register("github_trending")
+class GitHubTrendingEngine(BaseScraper):
     def fetch(self) -> list[RawItem]:
-        token = os.getenv(GITHUB_TOKEN_ENV, "")
+        token = os.getenv("GH_MODELS_TOKEN", "")
         try:
             res = requests.get(
                 "https://github.com/trending",
                 headers={"User-Agent": "Mozilla/5.0"},
-                timeout=15,
+                timeout=self.config.get("timeout", 15),
             )
             res.raise_for_status()
             soup = BeautifulSoup(res.text, "html.parser")
@@ -52,22 +48,19 @@ class GitHubTrendingScraper(BaseScraper):
                 parts = full_name.split("/")
                 owner, repo = (parts[0], parts[1]) if len(parts) == 2 else ("", full_name)
 
-                # 获取 README 原文 → 提取图片 → 清洗文本
                 readme_raw = _fetch_readme_raw(owner, repo, token) if owner else ""
                 readme_images = _extract_readme_images(readme_raw, owner, repo) if readme_raw else []
                 readme_clean = _clean_readme(readme_raw) if readme_raw else ""
-
                 star_history = _star_history_url(owner, repo) if owner else ""
-
                 lang_prefix = _fetch_languages(owner, repo, token) if owner else ""
                 body_text = lang_prefix + readme_clean if readme_clean else description
 
                 items.append(RawItem(
                     title=full_name,
                     original_url=repo_url,
-                    source_name=self.source_name,
-                    source_type=self.source_type,
-                    content_type=self.content_type,
+                    source_name=self.name,
+                    source_type=self.config.get("source_type", "REPO"),
+                    content_type=self.config.get("content_type", "repo"),
                     author=owner,
                     body_text=body_text,
                     raw_metrics={"stars": stars, "rank": rank},

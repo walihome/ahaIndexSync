@@ -1,21 +1,17 @@
-# scrapers/github/search.py
+# scrapers/github_search.py
 
 import os
 import re
 import requests
 from datetime import datetime, timedelta
 from infra.models import BaseScraper, RawItem
+from scrapers.registry import register
 
-GITHUB_TOKEN_ENV = "GH_MODELS_TOKEN"
-FETCH_WINDOW_HOURS = 25 * 24  # 时间窗口
-
-# 噪音图片域名/路径关键词，这些不是项目的核心图
-_BADGE_PATTERNS = [
+_DEFAULT_BADGE_PATTERNS = [
     "shields.io", "badgen.net", "img.shields.io",
     "badge", "ci-badge", "codecov.io", "travis-ci",
     "github.com/workflows", "actions/workflows",
-    "hits.dwyl.com", "visitor-badge",
-    "star-history.com",
+    "hits.dwyl.com", "visitor-badge", "star-history.com",
 ]
 
 
@@ -23,39 +19,27 @@ def _get_headers(token: str) -> dict:
     return {"Authorization": f"token {token}"}
 
 
-def _is_noise_image(url: str) -> bool:
-    """判断是否为 badge/shield 等噪音图片"""
+def _is_noise_image(url: str, patterns: list[str] | None = None) -> bool:
     url_lower = url.lower()
-    return any(p in url_lower for p in _BADGE_PATTERNS)
+    return any(p in url_lower for p in (patterns or _DEFAULT_BADGE_PATTERNS))
 
 
-def _extract_readme_images(raw_text: str, owner: str, repo: str) -> list[str]:
-    """
-    从 README 原文中提取有意义的图片 URL（排除 badge 等噪音）。
-    只取前 3 张，够用了。
-    """
+def _extract_readme_images(raw_text: str, owner: str, repo: str, max_images: int = 3, badge_patterns: list[str] | None = None) -> list[str]:
     if not raw_text:
         return []
-
-    # Markdown 图片: ![alt](url)
     md_images = re.findall(r'!\[.*?\]\((.*?)\)', raw_text)
-
-    # HTML 图片: <img src="url">
     html_images = re.findall(r'<img[^>]+src=["\']([^"\']+)["\']', raw_text, re.IGNORECASE)
-
     all_urls = md_images + html_images
     result = []
     for url in all_urls:
         url = url.strip()
-        if not url or _is_noise_image(url):
+        if not url or _is_noise_image(url, badge_patterns):
             continue
-        # 相对路径转绝对路径
         if url.startswith("./") or (not url.startswith("http") and not url.startswith("//")):
             url = f"https://raw.githubusercontent.com/{owner}/{repo}/refs/heads/main/{url.lstrip('./')}"
         result.append(url)
-        if len(result) >= 3:
+        if len(result) >= max_images:
             break
-
     return result
 
 
@@ -70,26 +54,19 @@ def _clean_readme(text: str) -> str:
 
 
 def _fetch_readme_raw(owner: str, repo: str, token: str) -> str:
-    """获取 README 原文（未清洗），用于提取图片"""
     try:
         headers = {"Accept": "application/vnd.github.raw"}
         if token:
             headers["Authorization"] = f"token {token}"
         resp = requests.get(
             f"https://api.github.com/repos/{owner}/{repo}/readme",
-            headers=headers,
-            timeout=10,
+            headers=headers, timeout=10,
         )
         if resp.status_code != 200:
             return ""
         return resp.text
     except Exception:
         return ""
-
-
-def _fetch_readme(owner: str, repo: str, token: str) -> str:
-    raw = _fetch_readme_raw(owner, repo, token)
-    return _clean_readme(raw) if raw else ""
 
 
 def _fetch_languages(owner: str, repo: str, token: str) -> str:
@@ -113,35 +90,38 @@ def _star_history_url(owner: str, repo: str) -> str:
     return f"https://api.star-history.com/svg?repos={owner}/{repo}&type=Date"
 
 
-class GitHubSearchScraper(BaseScraper):
-    source_name = "GitHub Search"
-    source_type = "REPO"
-    content_type = "repo"
-
+@register("github_search")
+class GitHubSearchEngine(BaseScraper):
     def fetch(self) -> list[RawItem]:
-        token = os.getenv(GITHUB_TOKEN_ENV)
+        token = os.getenv("GH_MODELS_TOKEN")
         if not token:
             print("⚠️ GH_MODELS_TOKEN 未设置")
             return []
 
         headers = _get_headers(token)
-        last_week = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+        fetch_days = self.config.get("fetch_window_days", 7)
+        last_week = (datetime.now() - timedelta(days=fetch_days)).strftime("%Y-%m-%d")
+        per_page = self.config.get("per_page", 30)
+        badge_patterns = self.config.get("badge_patterns", _DEFAULT_BADGE_PATTERNS)
+        max_images = self.config.get("max_readme_images", 3)
 
-        queries = [
-            (f"created:>={last_week} stars:>100 topic:ai",                "一周内 AI topic"),
-            (f"created:>={last_week} stars:>100 topic:llm",               "一周内 LLM topic"),
-            (f"created:>={last_week} stars:>100 LLM in:name,description", "一周内 LLM 关键词"),
-        ]
+        queries = self.config.get("queries", [
+            {"q": f"created:>={last_week} stars:>100 topic:ai", "label": "AI topic"},
+        ])
 
         seen, items = set(), []
 
-        for q, label in queries:
+        for query_cfg in queries:
+            q_template = query_cfg["q"]
+            q = q_template.replace("{last_week}", last_week)
+            label = query_cfg["label"]
+
             try:
                 res = requests.get(
                     "https://api.github.com/search/repositories",
                     headers=headers,
-                    params={"q": q, "sort": "stars", "order": "desc", "per_page": 30},
-                    timeout=15
+                    params={"q": q, "sort": "stars", "order": "desc", "per_page": per_page},
+                    timeout=15,
                 )
                 if res.status_code == 403:
                     print(f"⚠️ GitHub API 频率限制，跳过: {label}")
@@ -162,22 +142,19 @@ class GitHubSearchScraper(BaseScraper):
                     owner = r["owner"]["login"]
                     repo = r["name"]
 
-                    # 获取 README 原文 → 提取图片 → 清洗文本
                     readme_raw = _fetch_readme_raw(owner, repo, token)
-                    readme_images = _extract_readme_images(readme_raw, owner, repo)
+                    readme_images = _extract_readme_images(readme_raw, owner, repo, max_images, badge_patterns)
                     readme_clean = _clean_readme(readme_raw) if readme_raw else ""
-
-                    star_history_url = _star_history_url(owner, repo)
-
+                    star_history = _star_history_url(owner, repo)
                     lang_prefix = _fetch_languages(owner, repo, token)
                     body_text = lang_prefix + readme_clean if readme_clean else (r.get("description") or "")
 
                     items.append(RawItem(
                         title=r["full_name"],
                         original_url=url,
-                        source_name=self.source_name,
-                        source_type=self.source_type,
-                        content_type=self.content_type,
+                        source_name=self.name,
+                        source_type=self.config.get("source_type", "REPO"),
+                        content_type=self.config.get("content_type", "repo"),
                         author=owner,
                         author_url=f"https://github.com/{owner}",
                         body_text=body_text,
@@ -194,7 +171,7 @@ class GitHubSearchScraper(BaseScraper):
                             "search_query": label,
                             "description": r.get("description") or "",
                             "readme_images": readme_images,
-                            "star_history_url": star_history_url,
+                            "star_history_url": star_history,
                         },
                         published_at=datetime.fromisoformat(
                             r["created_at"].replace("Z", "+00:00")

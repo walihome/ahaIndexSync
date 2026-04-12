@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+.env
+.twscrape_accounts.db
