@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS prompt_templates (
     template TEXT NOT NULL,
     model TEXT NOT NULL DEFAULT 'kimi-k2.5',
     model_base_url TEXT NOT NULL DEFAULT 'https://api.moonshot.cn/v1',
-    temperature FLOAT NOT NULL DEFAULT 0.3,
+    temperature FLOAT NOT NULL DEFAULT 0.1,
     max_retries INT NOT NULL DEFAULT 3,
     request_interval FLOAT NOT NULL DEFAULT 0.5,
     enabled BOOLEAN NOT NULL DEFAULT true,
