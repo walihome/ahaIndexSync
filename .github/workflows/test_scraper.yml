@@ -1,11 +1,10 @@
-# test_scraper.yml
 name: Test Single Scraper
 
 on:
   workflow_dispatch:
     inputs:
       scraper_name:
-        description: 'TwitterScraper'
+        description: 'Scraper name (e.g. "GitHub Trending") or type (e.g. "hackernews")'
         type: string
         required: true
 
@@ -14,5 +13,6 @@ jobs:
     uses: ./.github/workflows/_pipeline.yml
     with:
       table_suffix: "_test"
+      run_mode: "test"
       scraper_name: ${{ inputs.scraper_name }}
     secrets: inherit

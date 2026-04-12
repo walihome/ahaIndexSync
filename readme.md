@@ -1,52 +1,87 @@
 # ahaIndexSync
 
-数据采集 → AI 加工 → 写入 Supabase。仅负责数据入库，不涉及静态文件生成、OSS 同步或 CDN 刷新（这些由 ahaIndex2 负责）。
+配置驱动的 AI 日报数据采集 Pipeline。从多源抓取 → AI 加工 → 精排 → 写入 Supabase。
 
-## 项目目录结构
+所有配置（抓取源、prompt、排序规则、参数）均存储在 Supabase 配置表中，通过 ahaIndexAdmin 管理。
+
+## 架构
 
 ```
-.
-├── scrape.py                      # 抓取入口，只负责 fetch → upsert raw_items
-├── process.py                     # 处理入口，只负责 raw→processed AI加工
-├── rank.py                        # 排序入口，dedup + AI 打分 → display_items
-├── generate_archives.py           # 归档入口，display_items → daily/weekly/monthly archives
+main.py                             # 统一入口
+├── pipeline/
+│   ├── config_loader.py            # 从 Supabase 加载全部配置
+│   ├── runner.py                   # Pipeline 编排器
+│   └── run_tracker.py              # 执行追踪（pipeline_runs / scraper_runs）
 │
-├── config/
-│   └── tracked_keywords.py        # 全局关键词配置，所有 scraper 共享
+├── stages/                         # Pipeline 各阶段
+│   ├── scrape.py                   # 遍历 scraper_configs → 实例化引擎 → 抓取
+│   ├── process.py                  # AI 处理 raw_items → processed_items
+│   ├── rank.py                     # AI 打分精排 → display_items
+│   └── archive.py                  # 归档 daily/weekly/monthly
 │
-├── infra/
-│   ├── models.py                  # RawItem 数据模型定义
-│   ├── db.py                      # 纯数据库读写，不含业务逻辑
-│   ├── llm.py                     # AI 处理逻辑
-│   ├── content_fetcher.py         # 正文抓取/补全
-│   ├── display_metrics.py         # 前端展示字段组装
-│   └── time_utils.py              # 时间窗口工具
+├── scrapers/                       # 抓取引擎（纯代码，配置从 DB 注入）
+│   ├── registry.py                 # scraper_type → class 映射
+│   ├── github_trending.py
+│   ├── github_search.py
+│   ├── hackernews.py
+│   ├── rss_feed.py
+│   ├── twitter_twscrape.py
+│   ├── twitter_nitter.py
+│   ├── ai_blog.py
+│   ├── community_v2ex.py
+│   └── community_linuxdo.py
 │
-└── scrapers/
-    ├── registry.py                # 自动发现所有 scraper
-    ├── github/
-    │   ├── trending.py
-    │   └── search.py
-    ├── news/
-    │   └── hackernews.py
-    ├── social/
-    │   └── twitter.py
-    ├── rss/
-    │   ├── rss_scraper.py
-    │   └── rss_config.py
-    └── ai_blogs/
-        ├── anthropic.py
-        ├── cohere.py
-        ├── mistral.py
-        └── stability_ai.py
+├── infra/                          # 基础设施
+│   ├── db.py                       # Supabase client + CRUD
+│   ├── llm.py                      # LLM 通用调用
+│   ├── models.py                   # RawItem + BaseScraper
+│   ├── content_fetcher.py          # 正文补全
+│   ├── display_metrics.py          # 展示指标组装
+│   ├── link_checker.py             # 链接可访问性检查
+│   └── time_utils.py               # 时间窗口工具
+│
+└── sql/                            # 建表 + 种子数据
+    ├── 001_config_tables.sql
+    └── 002_seed_data.sql
 ```
 
-## 核心原则
+## 配置表
 
-- `scrape.py` 只写 raw_items，不做任何 AI 处理
-- `process.py` 只读 raw_items diff，加工写 processed_items
-- `rank.py` 打分排序写 display_items
-- `generate_archives.py` 聚合归档数据写 Supabase
-- `scrapers/` 里的每个文件只依赖 `infra.models`，不依赖 db/llm
-- 新增数据源：在对应目录新建文件，继承 BaseScraper，实现 fetch()，完毕
-- 新增关注方向：在 config/tracked_keywords.py 加一行关键词
+| 表 | 用途 |
+|---|---|
+| `scraper_configs` | 抓取源配置（引擎类型 + 参数 JSON） |
+| `prompt_templates` | 所有 Prompt 模板（含模型、温度等） |
+| `rank_group_configs` | 精排分组定义 |
+| `tag_slot_configs` | 特殊标签每日名额 |
+| `pipeline_params` | 全局参数 KV |
+| `display_metrics_configs` | 前端展示指标 |
+| `content_fetch_rules` | 正文补全规则 |
+| `pipeline_runs` | Pipeline 执行记录 |
+| `scraper_runs` | 单个 Scraper 执行记录 |
+
+## 执行流程
+
+```
+1. 从 Supabase 加载全部配置 → PipelineConfig 快照
+2. 创建 pipeline_run 记录
+3. Stage 1: Scrape（遍历 enabled scrapers）
+4. Stage 2: Process（AI 加工 pending items）
+5. Stage 3: Rank（AI 打分精排）
+6. Stage 4: Archive（归档，仅生产模式）
+7. 更新 pipeline_run 状态和统计
+```
+
+## 本地运行
+
+```bash
+pip install -r requirements.txt
+export SUPABASE_URL=xxx
+export SUPABASE_SERVICE_ROLE_KEY=xxx
+export KIMI_API_KEY=xxx
+python main.py
+```
+
+## 新增数据源
+
+1. 在 Supabase `scraper_configs` 表中新增一行（指定已有的 scraper_type）
+2. 如果需要新引擎类型：在 `scrapers/` 下新建文件，用 `@register("new_type")` 注册

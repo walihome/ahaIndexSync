@@ -10,4 +10,5 @@ jobs:
     uses: ./.github/workflows/_pipeline.yml
     with:
       table_suffix: ""
+      run_mode: "daily"
     secrets: inherit

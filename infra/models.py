@@ -1,5 +1,4 @@
 # infra/models.py
-# 数据模型定义，全项目唯一的 RawItem 来源
 
 import hashlib
 from dataclasses import dataclass, field
@@ -11,9 +10,9 @@ from typing import Optional
 class RawItem:
     title: str
     original_url: str
-    source_name: str       # "GitHub" / "OpenAI Blog" / "HackerNews" / "X"
-    source_type: str       # "REPO" / "BLOG" / "NEWS" / "TWEET"
-    content_type: str      # "repo" / "article" / "tweet"
+    source_name: str
+    source_type: str
+    content_type: str
     author: str = ""
     author_url: str = ""
     body_text: str = ""
@@ -43,10 +42,11 @@ class RawItem:
 
 
 class BaseScraper:
-    """所有抓取器的基类"""
-    source_name: str = ""
-    source_type: str = ""
-    content_type: str = ""
+    """配置驱动的抓取引擎基类。"""
+
+    def __init__(self, name: str, config: dict):
+        self.name = name
+        self.config = config
 
     def fetch(self) -> list[RawItem]:
         raise NotImplementedError

@@ -1,5 +1,7 @@
 # infra/db.py
-# 纯数据库读写，不含任何业务逻辑
+# Supabase client + table name helpers
+
+from __future__ import annotations
 
 import os
 import json
@@ -11,27 +13,47 @@ from .time_utils import get_fetch_window
 
 load_dotenv()
 
-supabase: Client = create_client(
-    os.getenv("SUPABASE_URL"),
-    os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
-)
+_client: Client | None = None
+
+
+def get_supabase() -> Client:
+    global _client
+    if _client is None:
+        _client = create_client(
+            os.environ["SUPABASE_URL"],
+            os.environ["SUPABASE_SERVICE_ROLE_KEY"],
+        )
+    return _client
+
+
+# backward compat: old code that imports `supabase` directly from this module
+# will fail at import time but that's OK since rank.py is deleted
+supabase = None
+
+
+def table_names(suffix: str = "") -> tuple[str, str, str]:
+    s = suffix or os.getenv("TABLE_SUFFIX", "")
+    return f"raw_items{s}", f"processed_items{s}", f"display_items{s}"
+
 
 _suffix = os.getenv("TABLE_SUFFIX", "")
-RAW_TABLE = f"raw_items{_suffix}"
-PROCESSED_TABLE = f"processed_items{_suffix}"
-DISPLAY_TABLE = f"display_items{_suffix}"
+RAW_TABLE, PROCESSED_TABLE, DISPLAY_TABLE = table_names(_suffix)
 
 
 # ── 写入 ───────────────────────────────────────────────────────
 
-def upsert_raw_item(item: RawItem) -> None:
-    result = supabase.table(RAW_TABLE).upsert(item.to_db_dict()).execute()
+def upsert_raw_item(item: RawItem, raw_table: str | None = None) -> None:
+    sb = get_supabase()
+    tbl = raw_table or RAW_TABLE
+    result = sb.table(tbl).upsert(item.to_db_dict()).execute()
     if not result.data:
         raise Exception(f"upsert_raw_item 失败: {item.title}")
 
 
-def upsert_processed_item(item: RawItem, ai_data: dict, display_metrics: dict) -> None:
-    result = supabase.table(PROCESSED_TABLE).upsert({
+def upsert_processed_item(item: RawItem, ai_data: dict, display_metrics: dict, processed_table: str | None = None) -> None:
+    sb = get_supabase()
+    tbl = processed_table or PROCESSED_TABLE
+    result = sb.table(tbl).upsert({
         "item_id": item.id,
         "snapshot_date": date.today().isoformat(),
         "raw_title": item.title,
@@ -58,15 +80,15 @@ def upsert_processed_item(item: RawItem, ai_data: dict, display_metrics: dict) -
 
 # ── 读取 ───────────────────────────────────────────────────────
 
-def get_pending_items() -> list[RawItem]:
-    """
-    返回今日写入但尚未处理的 raw_items。
-    用时间窗口过滤 raw_items，再与 processed_items 做 diff。
-    """
-    start, end = get_fetch_window()
+def get_pending_items(raw_table: str | None = None, processed_table: str | None = None, fetch_window_hours: int = 24) -> list[RawItem]:
+    sb = get_supabase()
+    raw_tbl = raw_table or RAW_TABLE
+    proc_tbl = processed_table or PROCESSED_TABLE
+
+    start, end = get_fetch_window(fetch_window_hours)
 
     raw_data = (
-        supabase.table(RAW_TABLE)
+        sb.table(raw_tbl)
         .select("*")
         .gte("created_at", start.isoformat())
         .lte("created_at", end.isoformat())
@@ -76,7 +98,7 @@ def get_pending_items() -> list[RawItem]:
 
     processed_raw_ids = {
         r["item_id"]
-        for r in supabase.table(PROCESSED_TABLE)
+        for r in sb.table(proc_tbl)
         .select("item_id")
         .eq("snapshot_date", date.today().isoformat())
         .execute()
