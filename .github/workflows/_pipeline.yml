@@ -58,14 +58,5 @@ jobs:
     if: success() && inputs.table_suffix != '_test'
     runs-on: ubuntu-latest
     steps:
-      # Secret: AHAINDEX2_PAT（对 ahaIndex2 有 workflow 触发权限）。按需改 URL 里的 workflow 文件名与 ref。
       - name: Dispatch ahaIndex2 (workflow_dispatch)
-        env:
-          AHAINDEX2_PAT: ${{ secrets.AHAINDEX2_PAT }}
-        run: |
-          curl -fsS -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer $AHAINDEX2_PAT" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            -d '{"ref":"main"}' \
-            "https://api.github.com/repos/walihome/ahaIndex2/actions/workflows/deploy.yml/dispatches"
+        run: curl -fsS -X POST -H "Accept: application/vnd.github+json" -H "Authorization: Bearer ${{ secrets.AHAINDEX2_PAT }}" -H "X-GitHub-Api-Version: 2022-11-28" -d '{"ref":"main"}' "https://api.github.com/repos/walihome/ahaIndex2/actions/workflows/deploy.yml/dispatches"
