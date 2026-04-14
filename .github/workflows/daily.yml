@@ -11,5 +11,4 @@ jobs:
     with:
       table_suffix: ""
       run_mode: "daily"
-      notify_aha_index2: true
     secrets: inherit
