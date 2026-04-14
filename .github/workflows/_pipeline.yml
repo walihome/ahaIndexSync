@@ -58,35 +58,14 @@ jobs:
     if: success() && inputs.table_suffix != '_test'
     runs-on: ubuntu-latest
     steps:
-      - name: Dispatch ahaIndex2 workflow
+      # Secret: AHAINDEX2_PAT（对 ahaIndex2 有 workflow 触发权限）。按需改 URL 里的 workflow 文件名与 ref。
+      - name: Dispatch ahaIndex2 (workflow_dispatch)
         env:
-          TOKEN: ${{ secrets.AHAINDEX2_DISPATCH_TOKEN }}
-          TARGET_REPO: ${{ vars.AHAINDEX2_REPO }}
-          WORKFLOW_FILE: ${{ vars.AHAINDEX2_WORKFLOW_FILE }}
-          TARGET_REF: ${{ vars.AHAINDEX2_DISPATCH_REF }}
+          AHAINDEX2_PAT: ${{ secrets.AHAINDEX2_PAT }}
         run: |
-          set -euo pipefail
-          if [ -z "${TOKEN:-}" ] || [ -z "${TARGET_REPO:-}" ]; then
-            echo "Skip ahaIndex2 dispatch: set secrets.AHAINDEX2_DISPATCH_TOKEN and vars.AHAINDEX2_REPO (owner/name)."
-            exit 0
-          fi
-          wf="${WORKFLOW_FILE:-}"
-          if [ -z "$wf" ]; then
-            echo "Skip ahaIndex2 dispatch: set vars.AHAINDEX2_WORKFLOW_FILE to the workflow file name in ahaIndex2 (e.g. deploy.yml)."
-            exit 0
-          fi
-          ref="${TARGET_REF:-main}"
-          url="https://api.github.com/repos/${TARGET_REPO}/actions/workflows/${wf}/dispatches"
-          echo "POST ${url} (ref=${ref})"
-          code="$(curl -sS -o /tmp/gh_dispatch_body.txt -w '%{http_code}' \
-            -X POST "$url" \
+          curl -fsS -X POST \
             -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Authorization: Bearer $AHAINDEX2_PAT" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
-            -d "{\"ref\":\"${ref}\"}")"
-          if [ "$code" != "204" ]; then
-            echo "GitHub API HTTP ${code}"
-            cat /tmp/gh_dispatch_body.txt
-            exit 1
-          fi
-          echo "ahaIndex2 workflow_dispatch ok"
+            -d '{"ref":"main"}' \
+            "https://api.github.com/repos/walihome/ahaIndex2/actions/workflows/deploy.yml/dispatches"
