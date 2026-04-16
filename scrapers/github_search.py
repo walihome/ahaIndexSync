@@ -5,6 +5,7 @@ import re
 import requests
 from datetime import datetime, timedelta
 from infra.models import BaseScraper, RawItem
+from infra.oss import upload_images_to_oss, upload_image_to_oss
 from scrapers.registry import register
 
 _DEFAULT_BADGE_PATTERNS = [
@@ -144,8 +145,10 @@ class GitHubSearchEngine(BaseScraper):
 
                     readme_raw = _fetch_readme_raw(owner, repo, token)
                     readme_images = _extract_readme_images(readme_raw, owner, repo, max_images, badge_patterns)
+                    readme_images = upload_images_to_oss(readme_images)
                     readme_clean = _clean_readme(readme_raw) if readme_raw else ""
                     star_history = _star_history_url(owner, repo)
+                    star_history = upload_image_to_oss(star_history) or star_history
                     lang_prefix = _fetch_languages(owner, repo, token)
                     body_text = lang_prefix + readme_clean if readme_clean else (r.get("description") or "")
 
