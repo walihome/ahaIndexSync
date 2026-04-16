@@ -5,11 +5,14 @@ from __future__ import annotations
 
 import hashlib
 import os
-import mimetypes
 from datetime import date
 from urllib.parse import urlparse
 
 import requests
+
+OSS_ENDPOINT = "oss-cn-hangzhou.aliyuncs.com"
+OSS_BUCKET = "amazingindex"
+OSS_CUSTOM_DOMAIN = "cn-hangzhou.taihangpkx.cn"
 
 _oss_bucket = None
 _oss_enabled: bool | None = None
@@ -35,10 +38,10 @@ def _get_bucket():
 
     key_id = os.getenv("OSS_ACCESS_KEY_ID", "")
     key_secret = os.getenv("OSS_ACCESS_KEY_SECRET", "")
-    endpoint = os.getenv("OSS_ENDPOINT", "")
-    bucket_name = os.getenv("OSS_BUCKET", "")
+    endpoint = OSS_ENDPOINT
+    bucket_name = OSS_BUCKET
 
-    if not all([key_id, key_secret, endpoint, bucket_name]):
+    if not all([key_id, key_secret]):
         _oss_enabled = False
         return None
 
@@ -109,14 +112,7 @@ def upload_image_to_oss(url: str, date_str: str | None = None) -> str | None:
             "Content-Type": content_type or "application/octet-stream",
         })
 
-        oss_endpoint = os.getenv("OSS_ENDPOINT", "")
-        bucket_name = os.getenv("OSS_BUCKET", "")
-        custom_domain = os.getenv("OSS_CUSTOM_DOMAIN", "")
-
-        if custom_domain:
-            public_url = f"https://{custom_domain}/{oss_key}"
-        else:
-            public_url = f"https://{bucket_name}.{oss_endpoint}/{oss_key}"
+        public_url = f"https://{OSS_CUSTOM_DOMAIN}/{oss_key}"
 
         return public_url
 

@@ -49,9 +49,6 @@ jobs:
           KIMI_API_KEY: ${{ secrets.KIMI_API_KEY }}
           OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
           OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
-          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
-          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
-          OSS_CUSTOM_DOMAIN: ${{ secrets.OSS_CUSTOM_DOMAIN }}
           TABLE_SUFFIX: ${{ inputs.table_suffix }}
           RUN_MODE: ${{ inputs.run_mode }}
           SCRAPER_NAME: ${{ inputs.scraper_name }}
