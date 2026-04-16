@@ -6,10 +6,19 @@ import time
 from openai import OpenAI
 from pipeline.config_loader import PromptConfig
 
+_MODEL_TEMP_OVERRIDE: dict[str, float] = {}
 
-def _safe_temperature(temperature: float, err_str: str) -> float | None:
-    """If the model rejects the temperature, fall back to 1.0 (required by some models like kimi-k2.5)."""
+
+def _resolve_temperature(model: str, temperature: float) -> float:
+    if model in _MODEL_TEMP_OVERRIDE:
+        return _MODEL_TEMP_OVERRIDE[model]
+    return temperature
+
+
+def _handle_invalid_temperature(model: str, temperature: float, err_str: str) -> float | None:
     if "invalid temperature" in err_str and temperature != 1.0:
+        _MODEL_TEMP_OVERRIDE[model] = 1.0
+        print(f"  ⚠️ 模型 {model} 不支持 temperature={temperature}，已全局回退到 1.0")
         return 1.0
     return None
 
@@ -25,7 +34,7 @@ def call_llm(
         return None
 
     client = OpenAI(base_url=config.model_base_url, api_key=api_key)
-    temperature = config.temperature
+    temperature = _resolve_temperature(config.model, config.temperature)
 
     for attempt in range(config.max_retries):
         try:
@@ -46,9 +55,8 @@ def call_llm(
         except Exception as e:
             err_str = str(e)
 
-            fallback_temp = _safe_temperature(temperature, err_str)
+            fallback_temp = _handle_invalid_temperature(config.model, temperature, err_str)
             if fallback_temp is not None:
-                print(f"  ⚠️ 模型不支持 temperature={temperature}，回退到 {fallback_temp}")
                 temperature = fallback_temp
                 continue
 
@@ -79,6 +87,7 @@ def call_llm_raw(
         return None
 
     client = OpenAI(base_url=base_url, api_key=api_key)
+    temperature = _resolve_temperature(model, temperature)
 
     for _retry in range(2):
         try:
@@ -94,9 +103,8 @@ def call_llm_raw(
             return json.loads(response.choices[0].message.content)
         except Exception as e:
             err_str = str(e)
-            fallback_temp = _safe_temperature(temperature, err_str)
+            fallback_temp = _handle_invalid_temperature(model, temperature, err_str)
             if fallback_temp is not None:
-                print(f"  ⚠️ 模型不支持 temperature={temperature}，回退到 {fallback_temp}")
                 temperature = fallback_temp
                 continue
             print(f"⚠️ LLM 调用失败: {e}")
