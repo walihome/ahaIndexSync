@@ -9,6 +9,7 @@ from scrapers.github_search import (
     _fetch_readme_raw, _clean_readme, _extract_readme_images,
     _fetch_languages, _star_history_url,
 )
+from infra.oss import upload_images_to_oss, upload_image_to_oss
 
 
 @register("github_trending")
@@ -50,8 +51,11 @@ class GitHubTrendingEngine(BaseScraper):
 
                 readme_raw = _fetch_readme_raw(owner, repo, token) if owner else ""
                 readme_images = _extract_readme_images(readme_raw, owner, repo) if readme_raw else []
+                readme_images = upload_images_to_oss(readme_images)
                 readme_clean = _clean_readme(readme_raw) if readme_raw else ""
                 star_history = _star_history_url(owner, repo) if owner else ""
+                if star_history:
+                    star_history = upload_image_to_oss(star_history) or star_history
                 lang_prefix = _fetch_languages(owner, repo, token) if owner else ""
                 body_text = lang_prefix + readme_clean if readme_clean else description
 
