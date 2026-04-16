@@ -12,7 +12,7 @@ import requests
 
 OSS_ENDPOINT = "oss-cn-hangzhou.aliyuncs.com"
 OSS_BUCKET = "amazingindex"
-OSS_CUSTOM_DOMAIN = "cn-hangzhou.taihangpkx.cn"
+OSS_CUSTOM_DOMAIN = "www.amazingindex.com"
 
 _oss_bucket = None
 _oss_enabled: bool | None = None
