@@ -12,7 +12,7 @@ from supabase import Client
 from openai import OpenAI
 from pipeline.config_loader import PipelineConfig, RankGroupConfig, TagSlotConfig
 from infra.db import table_names, enrich_table_names
-from infra.llm import _model_extra_body
+from infra.llm import _model_extra_body, _handle_invalid_temperature
 from infra.time_utils import today_str
 
 
@@ -397,10 +397,10 @@ def _score_batch_with_llm(
 
         except Exception as e:
             err_str = str(e)
-            if "invalid temperature" in err_str and temperature != 1.0:
-                print(f"  ⚠️ 模型不支持 temperature={temperature}，回退到 1.0 重试")
-                temperature = 1.0
-                continue
+            fallback_temp = _handle_invalid_temperature(prompt_cfg.model, temperature, err_str)
+            if fallback_temp is not None:
+                temperature = fallback_temp
+                continue  # 温度回退不消耗 attempt
 
             is_content_filter = "content_filter" in err_str or "high risk" in err_str or "空内容" in err_str
             is_rate_limit = "429" in err_str or "overloaded" in err_str
