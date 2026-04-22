@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from supabase import Client
 from openai import OpenAI
 from pipeline.config_loader import PipelineConfig, RankGroupConfig, TagSlotConfig
-from infra.db import table_names
+from infra.db import table_names, enrich_table_names
 from infra.time_utils import today_str
 
 
@@ -38,17 +38,18 @@ def _build_display_row(item: dict, rank: int, today: str) -> dict:
     }
 
 
-def _fetch_enrichment_map(sb: Client, item_ids: list[str], today: str) -> dict[str, dict[str, dict]]:
+def _fetch_enrichment_map(sb: Client, item_ids: list[str], today: str, suffix: str = "") -> dict[str, dict[str, dict]]:
     """按 item_id 聚合当天 enrichment：{item_id: {enrichment_type: data}}"""
     if not item_ids:
         return {}
+    ie_table, _, _, _ = enrich_table_names(suffix)
     out: dict[str, dict[str, dict]] = {}
     batch_size = 200
     for i in range(0, len(item_ids), batch_size):
         chunk = item_ids[i:i + batch_size]
         try:
             rows = (
-                sb.table("item_enrichments")
+                sb.table(ie_table)
                 .select("item_id, enrichment_type, data")
                 .eq("snapshot_date", today)
                 .in_("item_id", chunk)
@@ -57,20 +58,21 @@ def _fetch_enrichment_map(sb: Client, item_ids: list[str], today: str) -> dict[s
                 or []
             )
         except Exception as e:
-            print(f"  ⚠️ 读取 item_enrichments 失败: {e}")
+            print(f"  ⚠️ 读取 {ie_table} 失败: {e}")
             rows = []
         for r in rows:
             out.setdefault(r["item_id"], {})[r["enrichment_type"]] = r.get("data") or {}
     return out
 
 
-def _fetch_subject_history(sb: Client, item_ids: list[str], today: str) -> dict[str, list[dict]]:
+def _fetch_subject_history(sb: Client, item_ids: list[str], today: str, suffix: str = "") -> dict[str, list[dict]]:
     """查今日每条 item 绑定的 subject 及其最近 90 天历史轨迹。返回 item_id → 历史摘要列表。"""
     if not item_ids:
         return {}
+    _, subjects_table, subject_mentions_table, _ = enrich_table_names(suffix)
     try:
         today_mentions = (
-            sb.table("subject_mentions")
+            sb.table(subject_mentions_table)
             .select("item_id, subject_id")
             .eq("snapshot_date", today)
             .in_("item_id", item_ids)
@@ -79,7 +81,7 @@ def _fetch_subject_history(sb: Client, item_ids: list[str], today: str) -> dict[
             or []
         )
     except Exception as e:
-        print(f"  ⚠️ 读取 subject_mentions 失败: {e}")
+        print(f"  ⚠️ 读取 {subject_mentions_table} 失败: {e}")
         return {}
 
     if not today_mentions:
@@ -96,7 +98,7 @@ def _fetch_subject_history(sb: Client, item_ids: list[str], today: str) -> dict[
 
     try:
         subjects = (
-            sb.table("subjects")
+            sb.table(subjects_table)
             .select("id, slug, display_name, mention_count, first_seen_at, last_seen_at")
             .in_("id", list(all_subject_ids))
             .execute()
@@ -104,14 +106,14 @@ def _fetch_subject_history(sb: Client, item_ids: list[str], today: str) -> dict[
             or []
         )
     except Exception as e:
-        print(f"  ⚠️ 读取 subjects 失败: {e}")
+        print(f"  ⚠️ 读取 {subjects_table} 失败: {e}")
         subjects = []
     subj_map = {s["id"]: s for s in subjects}
 
     cutoff = (date.fromisoformat(today) - timedelta(days=90)).isoformat()
     try:
         history = (
-            sb.table("subject_mentions")
+            sb.table(subject_mentions_table)
             .select("subject_id, snapshot_date, source_name, score")
             .in_("subject_id", list(all_subject_ids))
             .gte("snapshot_date", cutoff)
@@ -428,8 +430,8 @@ def run_rank(
         return {"display_count": 0}
 
     item_ids = [d["item_id"] for d in data]
-    enrichment_map = _fetch_enrichment_map(sb, item_ids, today)
-    subject_history_map = _fetch_subject_history(sb, item_ids, today)
+    enrichment_map = _fetch_enrichment_map(sb, item_ids, today, table_suffix)
+    subject_history_map = _fetch_subject_history(sb, item_ids, today, table_suffix)
     if enrichment_map or subject_history_map:
         print(f"🧩 enrichment 命中 {len(enrichment_map)} 条，subject 历史 {len(subject_history_map)} 条")
 

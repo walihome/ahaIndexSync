@@ -36,8 +36,23 @@ def table_names(suffix: str = "") -> tuple[str, str, str]:
     return f"raw_items{s}", f"processed_items{s}", f"display_items{s}"
 
 
+def enrich_table_names(suffix: str = "") -> tuple[str, str, str, str]:
+    """
+    返回 (item_enrichments, subjects, subject_mentions, subject_aliases) 4 张新表的名称。
+    suffix='_test' 时用测试表；空字符串即生产表。
+    """
+    s = suffix or os.getenv("TABLE_SUFFIX", "")
+    return (
+        f"item_enrichments{s}",
+        f"subjects{s}",
+        f"subject_mentions{s}",
+        f"subject_aliases{s}",
+    )
+
+
 _suffix = os.getenv("TABLE_SUFFIX", "")
 RAW_TABLE, PROCESSED_TABLE, DISPLAY_TABLE = table_names(_suffix)
+ITEM_ENRICHMENTS_TABLE, SUBJECTS_TABLE, SUBJECT_MENTIONS_TABLE, SUBJECT_ALIASES_TABLE = enrich_table_names(_suffix)
 
 
 # ── 写入 ───────────────────────────────────────────────────────

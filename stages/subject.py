@@ -16,6 +16,8 @@ from datetime import date
 
 from supabase import Client
 
+from infra.db import enrich_table_names
+
 
 _cache_lock = threading.Lock()
 
@@ -23,8 +25,14 @@ _cache_lock = threading.Lock()
 class SubjectRegistry:
     """在一次 Enrich 运行内缓存 slug → subject_id，避免重复 upsert。"""
 
-    def __init__(self, sb: Client):
+    def __init__(self, sb: Client, table_suffix: str = ""):
         self.sb = sb
+        (
+            self._item_enrichments_table,
+            self._subjects_table,
+            self._subject_mentions_table,
+            self._subject_aliases_table,
+        ) = enrich_table_names(table_suffix)
         self._slug_to_id: dict[str, str] = {}
         self._alias_map: dict[str, str] = {}
         self._lock = threading.Lock()
@@ -32,7 +40,7 @@ class SubjectRegistry:
 
     def _load_aliases(self) -> None:
         try:
-            rows = self.sb.table("subject_aliases").select("from_slug, to_subject_id").execute().data or []
+            rows = self.sb.table(self._subject_aliases_table).select("from_slug, to_subject_id").execute().data or []
             for r in rows:
                 self._alias_map[r["from_slug"]] = r["to_subject_id"]
         except Exception as e:
@@ -62,7 +70,7 @@ class SubjectRegistry:
 
         try:
             existing = (
-                self.sb.table("subjects")
+                self.sb.table(self._subjects_table)
                 .select("id")
                 .eq("slug", slug)
                 .limit(1)
@@ -85,7 +93,7 @@ class SubjectRegistry:
         today = date.today().isoformat()
         try:
             inserted = (
-                self.sb.table("subjects")
+                self.sb.table(self._subjects_table)
                 .insert({
                     "slug": slug,
                     "type": type,
@@ -103,7 +111,7 @@ class SubjectRegistry:
             print(f"  ⚠️ 创建 subject 失败 {slug}: {e}")
             try:
                 existing = (
-                    self.sb.table("subjects")
+                    self.sb.table(self._subjects_table)
                     .select("id")
                     .eq("slug", slug)
                     .limit(1)
@@ -148,7 +156,7 @@ class SubjectRegistry:
             "context": (context or "")[:500] if context else None,
         }
         try:
-            self.sb.table("subject_mentions").upsert(
+            self.sb.table(self._subject_mentions_table).upsert(
                 row, on_conflict="subject_id,item_id,snapshot_date"
             ).execute()
         except Exception as e:
@@ -157,7 +165,7 @@ class SubjectRegistry:
 
         try:
             current = (
-                self.sb.table("subjects")
+                self.sb.table(self._subjects_table)
                 .select("mention_count, last_seen_at")
                 .eq("id", subject_id)
                 .limit(1)
@@ -169,7 +177,7 @@ class SubjectRegistry:
                 last_seen = current[0].get("last_seen_at") or snapshot_date
                 if snapshot_date > last_seen:
                     last_seen = snapshot_date
-                self.sb.table("subjects").update({
+                self.sb.table(self._subjects_table).update({
                     "mention_count": new_count,
                     "last_seen_at": last_seen,
                 }).eq("id", subject_id).execute()

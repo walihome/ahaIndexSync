@@ -1,6 +1,9 @@
 -- ============================================================
 -- AhaIndexSync - 第二层内容增厚 + Subject 资产体系
 -- 4 张新表：item_enrichments / subjects / subject_mentions / subject_aliases
+--
+-- 默认创建生产表（无后缀）。如需同时创建测试表（_test 后缀），
+-- 执行完本文件后再执行 003_enrich_and_subject_tables_test.sql
 -- ============================================================
 
 -- 1. item_enrichments: 第二层增厚数据

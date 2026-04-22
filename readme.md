@@ -54,9 +54,12 @@ main.py                             # 统一入口
 └── sql/                            # 建表 + 种子数据
     ├── 001_config_tables.sql
     ├── 002_seed_data.sql
-    ├── 003_enrich_and_subject_tables.sql   # Enrich + Subject 4 张新表
-    └── 004_enrich_seed.sql                  # Enrich 的 prompts + params
+    ├── 003_enrich_and_subject_tables.sql        # 生产：Enrich + Subject 4 张新表
+    ├── 003_enrich_and_subject_tables_test.sql   # 测试：同结构 + _test 后缀
+    └── 004_enrich_seed.sql                       # Enrich 的 prompts + params（全局共享）
 ```
+
+测试方式：`TABLE_SUFFIX=_test python main.py --suffix _test`，Scrape/Process/Coarse/Enrich/Rank 的所有读写都会落到 `_test` 表，与生产完全隔离。
 
 ## 配置表
 

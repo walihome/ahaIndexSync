@@ -9,6 +9,7 @@ from typing import Any
 from supabase import Client
 
 from pipeline.config_loader import PipelineConfig
+from infra.db import enrich_table_names
 
 
 @dataclass
@@ -44,10 +45,17 @@ class BaseEnricher:
     name: str = ""
     enrichment_type: str = ""
 
-    def __init__(self, sb: Client, config: PipelineConfig, api_key: str = ""):
+    def __init__(self, sb: Client, config: PipelineConfig, api_key: str = "", table_suffix: str = ""):
         self.sb = sb
         self.config = config
         self.api_key = api_key
+        self.table_suffix = table_suffix
+        (
+            self.item_enrichments_table,
+            self.subjects_table,
+            self.subject_mentions_table,
+            self.subject_aliases_table,
+        ) = enrich_table_names(table_suffix)
 
     def preload(self, items: list[dict], snapshot_date: str) -> None:  # noqa: B027
         return None

@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from supabase import Client
 
 from pipeline.config_loader import PipelineConfig
-from infra.db import table_names
+from infra.db import table_names, enrich_table_names
 from infra.time_utils import today_str
 from enrichers.base import BaseEnricher, EnrichmentResult, SubjectCandidate
 from enrichers.registry import list_enrichers
@@ -73,17 +73,18 @@ def _enrich_one_item(item: dict, enrichers: list[BaseEnricher], deadline: float)
 def _persist_enrichments(sb: Client, rows: list[dict], suffix: str) -> int:
     if not rows:
         return 0
+    ie_table, _, _, _ = enrich_table_names(suffix)
     try:
-        sb.table("item_enrichments").upsert(
+        sb.table(ie_table).upsert(
             rows, on_conflict="item_id,snapshot_date,enrichment_type"
         ).execute()
         return len(rows)
     except Exception as e:
-        print(f"  ⚠️ item_enrichments 批量写入失败: {e}")
+        print(f"  ⚠️ {ie_table} 批量写入失败: {e}")
         ok = 0
         for r in rows:
             try:
-                sb.table("item_enrichments").upsert(
+                sb.table(ie_table).upsert(
                     r, on_conflict="item_id,snapshot_date,enrichment_type"
                 ).execute()
                 ok += 1
@@ -196,7 +197,7 @@ def run_enrich(
     snapshot_date = today_str()
 
     enricher_classes = list_enrichers()
-    enrichers: list[BaseEnricher] = [cls(sb, config, api_key) for cls in enricher_classes]
+    enrichers: list[BaseEnricher] = [cls(sb, config, api_key, table_suffix) for cls in enricher_classes]
     print(f"🧩 Enricher 列表: {[e.name for e in enrichers]}")
 
     for e in enrichers:
@@ -243,7 +244,7 @@ def run_enrich(
             })
     written = _persist_enrichments(sb, enrichment_rows, table_suffix)
 
-    registry = SubjectRegistry(sb)
+    registry = SubjectRegistry(sb, table_suffix)
     primary_mentions = _register_primary_subjects(registry, items, snapshot_date)
     candidate_mentions = _register_candidate_subjects(registry, outputs, snapshot_date)
 

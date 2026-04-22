@@ -27,8 +27,8 @@ from enrichers._utils import github_slug, primary_github_repo_for_item
 class CrossReferenceEnricher(BaseEnricher):
     enrichment_type = "cross_reference"
 
-    def __init__(self, sb, config, api_key=""):
-        super().__init__(sb, config, api_key)
+    def __init__(self, sb, config, api_key="", table_suffix=""):
+        super().__init__(sb, config, api_key, table_suffix)
         self._subjects_by_slug: dict[str, dict] = {}
         self._mentions_by_subject: dict[str, list[dict]] = defaultdict(list)
         self._same_day_items_by_subject: dict[str, list[dict]] = defaultdict(list)
@@ -49,7 +49,7 @@ class CrossReferenceEnricher(BaseEnricher):
 
         try:
             rows = (
-                self.sb.table("subjects")
+                self.sb.table(self.subjects_table)
                 .select("id, slug, type, display_name, mention_count, first_seen_at, last_seen_at")
                 .in_("slug", list(candidate_slugs))
                 .execute()
@@ -70,7 +70,7 @@ class CrossReferenceEnricher(BaseEnricher):
         cutoff = (date.fromisoformat(snapshot_date) - timedelta(days=90)).isoformat()
         try:
             mentions = (
-                self.sb.table("subject_mentions")
+                self.sb.table(self.subject_mentions_table)
                 .select("subject_id, item_id, snapshot_date, source_name, score")
                 .in_("subject_id", subject_ids)
                 .gte("snapshot_date", cutoff)
