@@ -9,7 +9,8 @@ INSERT INTO pipeline_params (key, value, description) VALUES
 ('enrich_enabled', 'true', 'Enrich 阶段总开关，关闭后等同于旧管道'),
 ('enrich_timeout', '3600', 'Enrich 阶段整体超时秒数，超时后已写入数据保留、后续跳过'),
 ('enrich_max_workers', '5', 'Enrich 阶段 item 级并发线程数'),
-('coarse_filter_min_aha', '0.25', '粗排阶段 aha_index 下限，低于此值直接排除')
+('coarse_filter_min_aha', '0.25', '粗排阶段 aha_index 下限，低于此值直接排除'),
+('rank_batch_size', '12', 'Rank 阶段单次 LLM 打分的候选上限，超过会自动切批以规避内容过滤/长 prompt')
 ON CONFLICT (key) DO NOTHING;
 
 
