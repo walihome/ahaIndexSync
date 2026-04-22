@@ -12,6 +12,7 @@ from supabase import Client
 from openai import OpenAI
 from pipeline.config_loader import PipelineConfig, RankGroupConfig, TagSlotConfig
 from infra.db import table_names, enrich_table_names
+from infra.llm import _model_extra_body
 from infra.time_utils import today_str
 
 
@@ -313,14 +314,19 @@ def _records_from_llm(candidates: list[dict], score_map: dict[int, dict]) -> lis
     return records
 
 
-def _records_degraded(candidates: list[dict], reason: str) -> list[dict]:
-    """某一批 LLM 彻底失败，按 aha_index * 100 降级打分。"""
+def _records_degraded(candidates: list[dict], reason: str, flagged: str | None = None) -> list[dict]:
+    """某一批 LLM 彻底失败，按 aha_index * 100 降级打分。
+    flagged: 'content_filter' 等标记，保留在 ai_detail 里便于后续筛选/人工审核。
+    """
     records = []
     for item in candidates:
+        detail = {"comment": f"降级: {reason[:100]}"}
+        if flagged:
+            detail["flagged"] = flagged
         records.append({
             "item": item,
             "ai_score": (item.get("aha_index") or 0) * 100,
-            "ai_detail": {"comment": f"降级: {reason[:100]}"},
+            "ai_detail": detail,
             "tags": [],
             "comment": "",
             "selected": False,
@@ -358,6 +364,7 @@ def _score_batch_with_llm(
 
     client = OpenAI(base_url=prompt_cfg.model_base_url, api_key=api_key)
     temperature = prompt_cfg.temperature
+    extra_body = _model_extra_body(prompt_cfg.model)
     messages = [
         {"role": "system", "content": system_cfg.template if system_cfg else "You are a JSON-only scorer."},
         {"role": "user", "content": prompt},
@@ -371,6 +378,7 @@ def _score_batch_with_llm(
                 model=prompt_cfg.model,
                 temperature=temperature,
                 response_format={"type": "json_object"},
+                extra_body=extra_body,
             )
             content = response.choices[0].message.content or ""
             if not content.strip():
@@ -403,12 +411,12 @@ def _score_batch_with_llm(
                 continue
 
             if is_content_filter:
-                print(f"  ⚠️ [{group}/{batch_label}] LLM 内容过滤或空返，降级为 aha_index 排序: {err_str[:100]}")
-            else:
-                print(f"  ⚠️ [{group}/{batch_label}] AI 打分失败: {err_str[:150]}，降级为 aha_index 排序")
-            return _records_degraded(candidates, err_str)
+                print(f"  ⚠️ [{group}/{batch_label}] LLM 内容过滤或空返，降级为 aha_index 排序并标记 flagged=content_filter: {err_str[:100]}")
+                return _records_degraded(candidates, err_str, flagged="content_filter")
+            print(f"  ⚠️ [{group}/{batch_label}] AI 打分失败: {err_str[:150]}，降级为 aha_index 排序")
+            return _records_degraded(candidates, err_str, flagged="llm_error")
 
-    return _records_degraded(candidates, "重试耗尽")
+    return _records_degraded(candidates, "重试耗尽", flagged="llm_retry_exhausted")
 
 
 def _ai_score(
