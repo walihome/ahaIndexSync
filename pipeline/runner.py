@@ -44,7 +44,7 @@ def run_pipeline(
     tracker = RunTracker(sb, run_type=mode, table_suffix=table_suffix)
     tracker.start_run(config.to_snapshot())
 
-    stats = {"scraped": 0, "processed": 0, "ranked": 0, "archived": 0, "errors": 0}
+    stats = {"scraped": 0, "processed": 0, "coarse_survived": 0, "enriched": 0, "ranked": 0, "archived": 0, "errors": 0}
 
     try:
         # Stage 1: Scrape
@@ -65,18 +65,38 @@ def run_pipeline(
         stats["processed"] = process_stats.get("success", 0)
         stats["errors"] += process_stats.get("failed", 0)
 
-        # Stage 3: Rank
+        # Stage 3a: Coarse Filter
         print(f"\n{'─' * 40}")
-        print("🏆 Stage 3: Rank")
+        print("🪓 Stage 3a: Coarse Filter")
+        print(f"{'─' * 40}")
+        from stages.coarse_filter import run_coarse_filter
+        coarse_stats = run_coarse_filter(sb, config, table_suffix)
+        candidates = coarse_stats.get("items", [])
+        stats["coarse_survived"] = coarse_stats.get("survived", 0)
+
+        # Stage 3b: Enrich (不可阻塞主管道：单 enricher 容错 + 总体超时)
+        print(f"\n{'─' * 40}")
+        print("🧩 Stage 3b: Enrich")
+        print(f"{'─' * 40}")
+        try:
+            from stages.enrich import run_enrich
+            enrich_stats = run_enrich(sb, config, candidates, table_suffix)
+            stats["enriched"] = enrich_stats.get("enrichments_written", 0)
+        except Exception as e:
+            print(f"⚠️ Enrich 阶段整体异常（降级为无 enrichment）: {e}")
+
+        # Stage 4: Rank
+        print(f"\n{'─' * 40}")
+        print("🏆 Stage 4: Rank")
         print(f"{'─' * 40}")
         from stages.rank import run_rank
-        rank_stats = run_rank(sb, config, table_suffix)
+        rank_stats = run_rank(sb, config, table_suffix, candidates=candidates)
         stats["ranked"] = rank_stats.get("display_count", 0)
 
-        # Stage 4: Archive (only for production runs)
+        # Stage 5: Archive (only for production runs)
         if not table_suffix:
             print(f"\n{'─' * 40}")
-            print("📦 Stage 4: Archive")
+            print("📦 Stage 5: Archive")
             print(f"{'─' * 40}")
             from stages.archive import run_archive
             archive_stats = run_archive(sb, config)
@@ -93,5 +113,6 @@ def run_pipeline(
     total_cost = (datetime.now() - start_time).total_seconds()
     print(f"\n{'═' * 60}")
     print(f"✨ Pipeline 完成 | {total_cost:.1f}s | scraped={stats['scraped']} "
-          f"processed={stats['processed']} ranked={stats['ranked']} errors={stats['errors']}")
+          f"processed={stats['processed']} coarse={stats['coarse_survived']} "
+          f"enriched={stats['enriched']} ranked={stats['ranked']} errors={stats['errors']}")
     print(f"{'═' * 60}\n")

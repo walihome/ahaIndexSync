@@ -1,0 +1,187 @@
+# stages/subject.py
+"""
+Subject 处理逻辑，在 Enrich 阶段内被调用。
+
+职责：
+  1. upsert_subject(slug, ...)：创建或更新 subjects 记录，遵守 subject_aliases 合并
+  2. record_mention(...)：写入 subject_mentions（唯一索引去重）
+
+V1 自动创建仅限 type='project'（github:owner/repo）。其他 type 靠手工 seed。
+"""
+
+from __future__ import annotations
+
+import threading
+from datetime import date
+
+from supabase import Client
+
+from infra.db import enrich_table_names
+
+
+_cache_lock = threading.Lock()
+
+
+class SubjectRegistry:
+    """在一次 Enrich 运行内缓存 slug → subject_id，避免重复 upsert。"""
+
+    def __init__(self, sb: Client, table_suffix: str = ""):
+        self.sb = sb
+        (
+            self._item_enrichments_table,
+            self._subjects_table,
+            self._subject_mentions_table,
+            self._subject_aliases_table,
+        ) = enrich_table_names(table_suffix)
+        self._slug_to_id: dict[str, str] = {}
+        self._alias_map: dict[str, str] = {}
+        self._lock = threading.Lock()
+        self._load_aliases()
+
+    def _load_aliases(self) -> None:
+        try:
+            rows = self.sb.table(self._subject_aliases_table).select("from_slug, to_subject_id").execute().data or []
+            for r in rows:
+                self._alias_map[r["from_slug"]] = r["to_subject_id"]
+        except Exception as e:
+            print(f"  ⚠️ 加载 subject_aliases 失败: {e}")
+
+    def upsert_subject(
+        self,
+        slug: str,
+        type: str,
+        display_name: str,
+        description: str = "",
+        metadata: dict | None = None,
+        auto_create_types: tuple[str, ...] = ("project",),
+    ) -> str | None:
+        """返回 subject_id。如果 slug 未知且 type 不在 auto_create_types，返回 None。"""
+        if not slug:
+            return None
+
+        with self._lock:
+            if slug in self._slug_to_id:
+                return self._slug_to_id[slug]
+
+            if slug in self._alias_map:
+                sid = self._alias_map[slug]
+                self._slug_to_id[slug] = sid
+                return sid
+
+        try:
+            existing = (
+                self.sb.table(self._subjects_table)
+                .select("id")
+                .eq("slug", slug)
+                .limit(1)
+                .execute()
+                .data
+            )
+        except Exception as e:
+            print(f"  ⚠️ 查询 subject 失败 {slug}: {e}")
+            return None
+
+        if existing:
+            sid = existing[0]["id"]
+            with self._lock:
+                self._slug_to_id[slug] = sid
+            return sid
+
+        if type not in auto_create_types:
+            return None
+
+        today = date.today().isoformat()
+        try:
+            inserted = (
+                self.sb.table(self._subjects_table)
+                .insert({
+                    "slug": slug,
+                    "type": type,
+                    "display_name": display_name or slug,
+                    "description": description,
+                    "metadata": metadata or {},
+                    "first_seen_at": today,
+                    "last_seen_at": today,
+                    "mention_count": 0,
+                })
+                .execute()
+                .data
+            )
+        except Exception as e:
+            print(f"  ⚠️ 创建 subject 失败 {slug}: {e}")
+            try:
+                existing = (
+                    self.sb.table(self._subjects_table)
+                    .select("id")
+                    .eq("slug", slug)
+                    .limit(1)
+                    .execute()
+                    .data
+                )
+                if existing:
+                    sid = existing[0]["id"]
+                    with self._lock:
+                        self._slug_to_id[slug] = sid
+                    return sid
+            except Exception:
+                pass
+            return None
+
+        if not inserted:
+            return None
+        sid = inserted[0]["id"]
+        with self._lock:
+            self._slug_to_id[slug] = sid
+        return sid
+
+    def record_mention(
+        self,
+        subject_id: str,
+        item_id: str,
+        snapshot_date: str,
+        role: str = "mentioned",
+        source_name: str | None = None,
+        score: float | None = None,
+        context: str | None = None,
+    ) -> bool:
+        if not subject_id or not item_id:
+            return False
+        row = {
+            "subject_id": subject_id,
+            "item_id": item_id,
+            "snapshot_date": snapshot_date,
+            "role": role,
+            "source_name": source_name,
+            "score": score,
+            "context": (context or "")[:500] if context else None,
+        }
+        try:
+            self.sb.table(self._subject_mentions_table).upsert(
+                row, on_conflict="subject_id,item_id,snapshot_date"
+            ).execute()
+        except Exception as e:
+            print(f"  ⚠️ 写入 subject_mention 失败 {subject_id}/{item_id}: {e}")
+            return False
+
+        try:
+            current = (
+                self.sb.table(self._subjects_table)
+                .select("mention_count, last_seen_at")
+                .eq("id", subject_id)
+                .limit(1)
+                .execute()
+                .data
+            )
+            if current:
+                new_count = (current[0].get("mention_count") or 0) + 1
+                last_seen = current[0].get("last_seen_at") or snapshot_date
+                if snapshot_date > last_seen:
+                    last_seen = snapshot_date
+                self.sb.table(self._subjects_table).update({
+                    "mention_count": new_count,
+                    "last_seen_at": last_seen,
+                }).eq("id", subject_id).execute()
+        except Exception as e:
+            print(f"  ⚠️ 更新 subject 计数失败 {subject_id}: {e}")
+
+        return True
