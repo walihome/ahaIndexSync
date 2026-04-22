@@ -20,6 +20,16 @@ _GITHUB_RESERVED = {
 }
 
 
+def _clean_repo(repo: str) -> str:
+    """清理 repo 名末尾的 .git / 斜线。注意必须用 removesuffix 而不是 rstrip！
+    rstrip(".git") 会把末尾任意属于 {'.','g','i','t'} 的字符全部吃掉，
+    导致 claude-context → claude-contex 这种诡异 bug。"""
+    repo = repo.rstrip("/")
+    if repo.endswith(".git"):
+        repo = repo[:-4]
+    return repo
+
+
 def parse_github_repo(url: str) -> tuple[str, str] | None:
     """从 URL 解析 (owner, repo)，非 GitHub 或无效返回 None。"""
     if not url:
@@ -30,7 +40,7 @@ def parse_github_repo(url: str) -> tuple[str, str] | None:
     owner, repo = m.group(1), m.group(2)
     if owner.lower() in _GITHUB_RESERVED:
         return None
-    repo = repo.rstrip(".git").rstrip("/")
+    repo = _clean_repo(repo)
     if not repo or repo.startswith("."):
         return None
     return owner, repo
@@ -50,7 +60,7 @@ def extract_github_repos_from_text(text: str, limit: int = 20) -> list[tuple[str
         owner, repo = m.group(1), m.group(2)
         if owner.lower() in _GITHUB_RESERVED:
             continue
-        repo = repo.rstrip(".git").rstrip("/")
+        repo = _clean_repo(repo)
         if not repo:
             continue
         key = (owner, repo)
