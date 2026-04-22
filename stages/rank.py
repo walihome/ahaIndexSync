@@ -164,7 +164,13 @@ def _format_enrichment_hint(
     comments = enrich_by_type.get("comments")
     if comments:
         sentiment = comments.get("sentiment")
+        if isinstance(sentiment, list):
+            sentiment = sentiment[0] if sentiment else None
+        if not isinstance(sentiment, str):
+            sentiment = None
         debate = comments.get("core_debate")
+        if isinstance(debate, list):
+            debate = "；".join(str(x) for x in debate if x)
         if sentiment or debate:
             parts = []
             if sentiment:
@@ -174,31 +180,41 @@ def _format_enrichment_hint(
             if parts:
                 lines.append("社区反馈:" + "，".join(parts))
         alts = comments.get("alternatives") or []
-        if alts:
-            lines.append(f"评论提到的替代方案:{', '.join(alts[:5])}")
+        if isinstance(alts, list):
+            alts_str = [str(a) for a in alts if a]
+            if alts_str:
+                lines.append(f"评论提到的替代方案:{', '.join(alts_str[:5])}")
 
     eco = enrich_by_type.get("ecosystem")
     if eco:
         competitors = eco.get("competitors") or []
-        if competitors:
+        if isinstance(competitors, list):
             comp_str = ", ".join(
                 f"{c.get('name')}({c.get('stars') or '?'}⭐)"
                 for c in competitors[:4]
-                if c.get("name")
+                if isinstance(c, dict) and c.get("name")
             )
-            position = eco.get("ecosystem_position") or ""
-            unique_val = eco.get("unique_value") or ""
-            parts = []
-            if comp_str:
-                parts.append(f"竞品:{comp_str}")
-            if position:
-                parts.append(position)
-            if unique_val:
-                parts.append(f"独特价值：{unique_val}")
-            if parts:
-                lines.append("生态:" + "；".join(parts))
+        else:
+            comp_str = ""
+        position = eco.get("ecosystem_position") or ""
+        if not isinstance(position, str):
+            position = str(position)
+        unique_val = eco.get("unique_value") or ""
+        if not isinstance(unique_val, str):
+            unique_val = str(unique_val)
+        parts = []
+        if comp_str:
+            parts.append(f"竞品:{comp_str}")
+        if position:
+            parts.append(position)
+        if unique_val:
+            parts.append(f"独特价值：{unique_val}")
+        if parts:
+            lines.append("生态:" + "；".join(parts))
         maturity = eco.get("maturity")
-        if maturity:
+        if isinstance(maturity, list):
+            maturity = maturity[0] if maturity else None
+        if isinstance(maturity, str) and maturity:
             lines.append(f"成熟度:{maturity}")
 
     cross = enrich_by_type.get("cross_reference")
