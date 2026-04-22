@@ -12,6 +12,7 @@ from supabase import Client
 from openai import OpenAI
 from pipeline.config_loader import PipelineConfig, RankGroupConfig, TagSlotConfig
 from infra.db import table_names, enrich_table_names
+from infra.llm import _model_extra_body, _handle_invalid_temperature
 from infra.time_utils import today_str
 
 
@@ -268,6 +269,156 @@ def _dedup_by_url(data: list[dict]) -> tuple[list[dict], list[dict]]:
     return list(seen.values()), dupes
 
 
+def _fmt_metrics(raw) -> str:
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            return raw
+    return json.dumps(raw, ensure_ascii=False) if raw else "{}"
+
+
+def _candidate_block(
+    i: int,
+    c: dict,
+    enrichment_map: dict[str, dict[str, dict]],
+    subject_history_map: dict[str, list[dict]],
+) -> str:
+    item_id = c.get("item_id")
+    lines = [
+        f"[{i+1}] 来源:{c['source_name']}",
+        f"类型:{c.get('content_type','')}",
+        f"标题:{c.get('processed_title') or c.get('raw_title')}",
+        f"摘要:{c.get('summary','')}",
+        f"参考指标:{_fmt_metrics(c.get('raw_metrics'))}",
+    ]
+    enrich = enrichment_map.get(item_id) or {}
+    history = subject_history_map.get(item_id) or []
+    for hint in _format_enrichment_hint(enrich, history):
+        lines.append(hint)
+    return "\n".join(lines)
+
+
+def _records_from_llm(candidates: list[dict], score_map: dict[int, dict]) -> list[dict]:
+    records = []
+    for i, item in enumerate(candidates):
+        s = score_map.get(i)
+        if s:
+            total = (s.get("actionability", 0) + s.get("tech_depth", 0) + s.get("impact", 0) + s.get("scarcity", 0) + s.get("audience_fit", 0)
+                     - s.get("marketing_penalty", 0) - s.get("duplicate_penalty", 0) - s.get("political_penalty", 0))
+            detail = {k: s.get(k, 0) for k in ["actionability", "tech_depth", "impact", "scarcity", "audience_fit", "marketing_penalty", "duplicate_penalty", "political_penalty"]}
+            detail["comment"] = s.get("comment", "")
+            records.append({"item": item, "ai_score": total, "ai_detail": detail, "tags": s.get("tags", []), "comment": s.get("comment", ""), "selected": False})
+        else:
+            records.append({"item": item, "ai_score": (item.get("aha_index") or 0) * 100, "ai_detail": {"comment": "AI 未返回该条打分"}, "tags": [], "comment": "", "selected": False})
+    return records
+
+
+def _records_degraded(candidates: list[dict], reason: str, flagged: str | None = None) -> list[dict]:
+    """某一批 LLM 彻底失败，按 aha_index * 100 降级打分。
+    flagged: 'content_filter' 等标记，保留在 ai_detail 里便于后续筛选/人工审核。
+    """
+    records = []
+    for item in candidates:
+        detail = {"comment": f"降级: {reason[:100]}"}
+        if flagged:
+            detail["flagged"] = flagged
+        records.append({
+            "item": item,
+            "ai_score": (item.get("aha_index") or 0) * 100,
+            "ai_detail": detail,
+            "tags": [],
+            "comment": "",
+            "selected": False,
+        })
+    return records
+
+
+def _score_batch_with_llm(
+    candidates: list[dict],
+    group: str,
+    config: PipelineConfig,
+    api_key: str,
+    enrichment_map: dict[str, dict[str, dict]],
+    subject_history_map: dict[str, list[dict]],
+    batch_label: str,
+) -> list[dict]:
+    """对一小批候选调 LLM 打分，返回 records。LLM 失败时返回 aha_index 降级 records。"""
+    prompt_cfg = config.get_prompt("rank_candidate")
+    idea_cfg = config.get_prompt("rank_idea")
+    scoring_cfg = config.get_prompt("rank_scoring")
+    system_cfg = config.get_prompt("rank_system")
+
+    candidate_text = "\n\n".join(
+        _candidate_block(i, c, enrichment_map, subject_history_map)
+        for i, c in enumerate(candidates)
+    )
+
+    prompt = prompt_cfg.render(
+        group=group,
+        count=str(len(candidates)),
+        idea_guide=idea_cfg.template if idea_cfg else "",
+        scoring_guide=scoring_cfg.template if scoring_cfg else "",
+        candidate_text=candidate_text,
+    )
+
+    client = OpenAI(base_url=prompt_cfg.model_base_url, api_key=api_key)
+    temperature = prompt_cfg.temperature
+    extra_body = _model_extra_body(prompt_cfg.model)
+    messages = [
+        {"role": "system", "content": system_cfg.template if system_cfg else "You are a JSON-only scorer."},
+        {"role": "user", "content": prompt},
+    ]
+
+    max_attempts = prompt_cfg.max_retries if hasattr(prompt_cfg, 'max_retries') else 2
+    for attempt in range(max_attempts):
+        try:
+            response = client.chat.completions.create(
+                messages=messages,
+                model=prompt_cfg.model,
+                temperature=temperature,
+                response_format={"type": "json_object"},
+                extra_body=extra_body,
+            )
+            content = response.choices[0].message.content or ""
+            if not content.strip():
+                raise ValueError("LLM 返回空内容（疑似内容过滤）")
+
+            result = json.loads(content)
+            scores = result.get("scores", [])
+            score_map: dict[int, dict] = {}
+            for s in scores:
+                idx = s.get("index", 0) - 1
+                if 0 <= idx < len(candidates):
+                    score_map[idx] = s
+
+            time.sleep(prompt_cfg.request_interval)
+            return _records_from_llm(candidates, score_map)
+
+        except Exception as e:
+            err_str = str(e)
+            fallback_temp = _handle_invalid_temperature(prompt_cfg.model, temperature, err_str)
+            if fallback_temp is not None:
+                temperature = fallback_temp
+                continue  # 温度回退不消耗 attempt
+
+            is_content_filter = "content_filter" in err_str or "high risk" in err_str or "空内容" in err_str
+            is_rate_limit = "429" in err_str or "overloaded" in err_str
+            if is_rate_limit and attempt < max_attempts - 1:
+                wait = 2 ** (attempt + 2)
+                print(f"  ⏳ 限流，{wait}s 后重试 ({attempt + 1}/{max_attempts})")
+                time.sleep(wait)
+                continue
+
+            if is_content_filter:
+                print(f"  ⚠️ [{group}/{batch_label}] LLM 内容过滤或空返，降级为 aha_index 排序并标记 flagged=content_filter: {err_str[:100]}")
+                return _records_degraded(candidates, err_str, flagged="content_filter")
+            print(f"  ⚠️ [{group}/{batch_label}] AI 打分失败: {err_str[:150]}，降级为 aha_index 排序")
+            return _records_degraded(candidates, err_str, flagged="llm_error")
+
+    return _records_degraded(candidates, "重试耗尽", flagged="llm_retry_exhausted")
+
+
 def _ai_score(
     candidates: list[dict],
     group: str,
@@ -283,108 +434,44 @@ def _ai_score(
         records = [{"item": item, "ai_score": None, "tags": [], "comment": "AI 不可用", "selected": i < limit, "ai_detail": {}} for i, item in enumerate(sorted_items)]
         return sorted_items[:limit], records
 
-    idea_cfg = config.get_prompt("rank_idea")
-    scoring_cfg = config.get_prompt("rank_scoring")
+    # 分批打分：当候选数 > batch_size 时切块
+    # 目的：单批 prompt 更短，哪批遇到内容过滤只影响那批；整体健壮性大幅提升
+    batch_size = int(config.get_param("rank_batch_size", 12))
+    batches: list[list[dict]] = []
+    if len(candidates) <= batch_size:
+        batches = [candidates]
+    else:
+        # 按原顺序切片，每批 ≤ batch_size；最后一批如果 < batch_size/2，合并到前一批避免碎批
+        step = batch_size
+        for i in range(0, len(candidates), step):
+            batches.append(candidates[i:i + step])
+        if len(batches) >= 2 and len(batches[-1]) < max(3, step // 2):
+            tail = batches.pop()
+            batches[-1].extend(tail)
+        print(f"  ↳ {len(candidates)} 条切成 {len(batches)} 批: {[len(b) for b in batches]}")
 
-    def _fmt(raw) -> str:
-        if isinstance(raw, str):
-            try:
-                raw = json.loads(raw)
-            except Exception:
-                return raw
-        return json.dumps(raw, ensure_ascii=False) if raw else "{}"
+    all_records: list[dict] = []
+    for bi, batch in enumerate(batches):
+        label = f"batch{bi+1}/{len(batches)}"
+        batch_records = _score_batch_with_llm(
+            batch, group, config, api_key, enrichment_map, subject_history_map, label,
+        )
+        all_records.extend(batch_records)
 
-    def _candidate_block(i: int, c: dict) -> str:
-        item_id = c.get("item_id")
-        lines = [
-            f"[{i+1}] 来源:{c['source_name']}",
-            f"类型:{c.get('content_type','')}",
-            f"标题:{c.get('processed_title') or c.get('raw_title')}",
-            f"摘要:{c.get('summary','')}",
-            f"参考指标:{_fmt(c.get('raw_metrics'))}",
-        ]
-        enrich = enrichment_map.get(item_id) or {}
-        history = subject_history_map.get(item_id) or []
-        for hint in _format_enrichment_hint(enrich, history):
-            lines.append(hint)
-        return "\n".join(lines)
+    all_records.sort(key=lambda r: r.get("ai_score") or 0, reverse=True)
+    for i in range(min(limit, len(all_records))):
+        all_records[i]["selected"] = True
 
-    candidate_text = "\n\n".join(_candidate_block(i, c) for i, c in enumerate(candidates))
+    selected = [r["item"] for r in all_records if r["selected"]]
+    for r in all_records:
+        flag = "✅" if r["selected"] else "  "
+        title = (r["item"].get("processed_title") or r["item"].get("raw_title", ""))[:40]
+        tags_str = f" [{','.join(r['tags'])}]" if r.get("tags") else ""
+        score = r.get("ai_score")
+        score_str = f"{score:5.1f}" if score is not None else "  n/a"
+        print(f"    {flag} {score_str} | {title}{tags_str}")
 
-    prompt = prompt_cfg.render(
-        group=group,
-        count=str(len(candidates)),
-        idea_guide=idea_cfg.template if idea_cfg else "",
-        scoring_guide=scoring_cfg.template if scoring_cfg else "",
-        candidate_text=candidate_text,
-    )
-
-    system_cfg = config.get_prompt("rank_system")
-    client = OpenAI(base_url=prompt_cfg.model_base_url, api_key=api_key)
-    temperature = prompt_cfg.temperature
-    messages = [
-        {"role": "system", "content": system_cfg.template if system_cfg else "You are a JSON-only scorer."},
-        {"role": "user", "content": prompt},
-    ]
-
-    max_attempts = prompt_cfg.max_retries if hasattr(prompt_cfg, 'max_retries') else 2
-    for attempt in range(max_attempts):
-        try:
-            response = client.chat.completions.create(
-                messages=messages,
-                model=prompt_cfg.model,
-                temperature=temperature,
-                response_format={"type": "json_object"},
-            )
-            result = json.loads(response.choices[0].message.content)
-            scores = result.get("scores", [])
-            score_map = {}
-            for s in scores:
-                idx = s.get("index", 0) - 1
-                if 0 <= idx < len(candidates):
-                    score_map[idx] = s
-
-            records = []
-            for i, item in enumerate(candidates):
-                s = score_map.get(i)
-                if s:
-                    total = (s.get("actionability", 0) + s.get("tech_depth", 0) + s.get("impact", 0) + s.get("scarcity", 0) + s.get("audience_fit", 0)
-                             - s.get("marketing_penalty", 0) - s.get("duplicate_penalty", 0) - s.get("political_penalty", 0))
-                    detail = {k: s.get(k, 0) for k in ["actionability", "tech_depth", "impact", "scarcity", "audience_fit", "marketing_penalty", "duplicate_penalty", "political_penalty"]}
-                    detail["comment"] = s.get("comment", "")
-                    records.append({"item": item, "ai_score": total, "ai_detail": detail, "tags": s.get("tags", []), "comment": s.get("comment", ""), "selected": False})
-                else:
-                    records.append({"item": item, "ai_score": item.get("aha_index", 0) * 100, "ai_detail": {"comment": "AI 未返回该条打分"}, "tags": [], "comment": "", "selected": False})
-
-            records.sort(key=lambda r: r["ai_score"] or 0, reverse=True)
-            for i in range(min(limit, len(records))):
-                records[i]["selected"] = True
-
-            selected = [r["item"] for r in records if r["selected"]]
-            for r in records:
-                flag = "✅" if r["selected"] else "  "
-                title = (r["item"].get("processed_title") or r["item"].get("raw_title", ""))[:40]
-                tags_str = f" [{','.join(r['tags'])}]" if r.get("tags") else ""
-                print(f"    {flag} {r['ai_score']:5.1f} | {title}{tags_str}")
-
-            time.sleep(prompt_cfg.request_interval)
-            return selected, records
-
-        except Exception as e:
-            err_str = str(e)
-            if "invalid temperature" in err_str and temperature != 1.0:
-                print(f"  ⚠️ 模型不支持 temperature={temperature}，回退到 1.0 重试")
-                temperature = 1.0
-                continue
-
-            print(f"  ⚠️ AI 打分失败 ({group}): {e}，降级为 aha_index 排序")
-            sorted_items = sorted(candidates, key=lambda x: x.get("aha_index", 0), reverse=True)
-            records = [{"item": item, "ai_score": None, "ai_detail": {"comment": f"异常: {str(e)[:100]}"}, "tags": [], "comment": "", "selected": i < limit} for i, item in enumerate(sorted_items)]
-            return sorted_items[:limit], records
-
-    sorted_items = sorted(candidates, key=lambda x: x.get("aha_index", 0), reverse=True)
-    records = [{"item": item, "ai_score": None, "ai_detail": {"comment": "重试耗尽"}, "tags": [], "comment": "", "selected": i < limit} for i, item in enumerate(sorted_items)]
-    return sorted_items[:limit], records
+    return selected, all_records
 
 
 def _apply_tag_slots(display_rows, all_records, tag_slots: list[TagSlotConfig], today: str) -> list[dict]:
