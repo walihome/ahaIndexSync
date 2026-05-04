@@ -3,8 +3,8 @@
 -- 1. scraper_configs
 INSERT INTO scraper_configs (scraper_type, name, priority, config) VALUES ('reddit', 'Reddit r/LocalLLaMA', 35, '{"source_type":"NEWS","content_type":"reddit","subreddit":"LocalLLaMA","min_score":50,"skip_nsfw":true,"skip_stickied":true,"skip_discussion_below":100,"skip_self_text_below":200,"max_retries":3,"source_tag":"ai_community"}');
 INSERT INTO scraper_configs (scraper_type, name, priority, config) VALUES ('reddit', 'Reddit r/MachineLearning', 35, '{"source_type":"NEWS","content_type":"reddit","subreddit":"MachineLearning","min_score":50,"skip_nsfw":true,"skip_stickied":true,"skip_discussion_below":100,"skip_self_text_below":200,"max_retries":3,"source_tag":"ai_community"}');
-INSERT INTO scraper_configs (scraper_type, name, priority, config) VALUES ('hf_papers', 'HuggingFace Papers', 55, '{"source_type":"ARTICLE","content_type":"hf_papers","max_retries":3,"source_tag":"ai_research"}');
-INSERT INTO scraper_configs (scraper_type, name, priority, config) VALUES ('hf_model', 'HuggingFace Models', 56, '{"source_type":"REPO","content_type":"hf_model","min_likes":50,"min_downloads":1000,"limit":100,"max_retries":3,"source_tag":"ai_model"}');
+INSERT INTO scraper_configs (scraper_type, name, priority, config) VALUES ('hf_papers', 'HuggingFace Papers', 55, '{"source_type":"ARTICLE","content_type":"hf_papers","top_n":3,"max_retries":3,"source_tag":"ai_research"}');
+INSERT INTO scraper_configs (scraper_type, name, priority, config) VALUES ('hf_model', 'HuggingFace Models', 56, '{"source_type":"REPO","content_type":"hf_model","min_likes":50,"min_downloads":1000,"limit":3,"max_retries":3,"source_tag":"ai_model"}');
 INSERT INTO scraper_configs (scraper_type, name, priority, config) VALUES ('product_hunt', 'Product Hunt', 65, '{"source_type":"PRODUCT","content_type":"product_hunt","min_votes":200,"max_retries":3,"topic_whitelist":["artificial-intelligence","developer-tools","productivity","chatbots","no-code","open-source","machine-learning"],"topic_blacklist":["crypto","web3","nft","blockchain","defi","dao","token"],"source_tag":"product_hunt"}');
 
 -- 2. rank_group_configs
