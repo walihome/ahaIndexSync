@@ -58,7 +58,10 @@ jobs:
           SCRAPER_NAME: ${{ inputs.scraper_name }}
           OVERRIDE_DATE: ${{ inputs.override_date }}
         run: |
-          ARGS="--mode $RUN_MODE --suffix $TABLE_SUFFIX"
+          ARGS="--mode $RUN_MODE"
+          if [ -n "$TABLE_SUFFIX" ]; then
+            ARGS="$ARGS --suffix $TABLE_SUFFIX"
+          fi
           if [ -n "$SCRAPER_NAME" ]; then
             ARGS="$ARGS --scraper $SCRAPER_NAME"
           fi
