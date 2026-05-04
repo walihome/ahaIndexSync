@@ -5,11 +5,11 @@ from __future__ import annotations
 
 import os
 import json
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from supabase import create_client, Client
 from dotenv import load_dotenv
 from .models import RawItem
-from .time_utils import get_fetch_window
+from .time_utils import get_fetch_window, get_today_str
 
 load_dotenv()
 
@@ -70,7 +70,7 @@ def upsert_processed_item(item: RawItem, ai_data: dict, display_metrics: dict, p
     tbl = processed_table or PROCESSED_TABLE
     result = sb.table(tbl).upsert({
         "item_id": item.id,
-        "snapshot_date": date.today().isoformat(),
+        "snapshot_date": get_today_str(),
         "raw_title": item.title,
         "original_url": item.original_url,
         "source_name": item.source_name,
@@ -111,11 +111,14 @@ def get_pending_items(raw_table: str | None = None, processed_table: str | None 
         .data
     )
 
+    # 排除最近 7 天内任何日期已处理的 item（防止回补时覆盖历史数据）
+    from datetime import timedelta
+    week_ago = (datetime.now() - timedelta(days=7)).date().isoformat()
     processed_raw_ids = {
         r["item_id"]
         for r in sb.table(proc_tbl)
         .select("item_id")
-        .eq("snapshot_date", date.today().isoformat())
+        .gte("snapshot_date", week_ago)
         .execute()
         .data
     }

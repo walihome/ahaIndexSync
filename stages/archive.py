@@ -9,10 +9,11 @@ from collections import Counter
 import requests
 from supabase import Client
 from pipeline.config_loader import PipelineConfig
+from infra.time_utils import get_today_str
 
 
 def run_archive(sb: Client, config: PipelineConfig) -> dict:
-    today = datetime.date.today()
+    today = datetime.date.fromisoformat(get_today_str())
     print(f"=== 归档数据生成 {today} ===")
 
     daily = _generate_daily(sb, today)

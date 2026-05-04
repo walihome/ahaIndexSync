@@ -26,7 +26,13 @@ def run_pipeline(
     mode: str = "daily",
     table_suffix: str = "",
     scraper_name: str = "",
+    override_date: str | None = None,
 ):
+    if override_date:
+        from infra.time_utils import set_override_date
+        set_override_date(override_date)
+        print(f"📅 使用指定日期: {override_date}")
+
     start_time = datetime.now()
     print(f"\n{'═' * 60}")
     print(f"🚀 Pipeline 启动 | mode={mode} | {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
