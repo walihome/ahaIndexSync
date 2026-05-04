@@ -79,12 +79,12 @@ def _retry_post(url: str, json_body: dict, headers: dict, max_retries: int = 3) 
     return resp
 
 
-def _yesterday_pt_range() -> tuple[str, str]:
-    """计算 PT 时区「昨天」的起止 ISO 时间字符串。"""
+def _pt_day_range(days_ago: int) -> tuple[str, str]:
+    """计算 PT 时区 N 天前的起止 ISO 时间字符串。"""
     now_utc = datetime.now(timezone.utc)
     now_pt = now_utc + PT_OFFSET
-    yesterday_pt = (now_pt - timedelta(days=1)).date()
-    start_pt = datetime(yesterday_pt.year, yesterday_pt.month, yesterday_pt.day, tzinfo=timezone.utc) - PT_OFFSET
+    target_pt = (now_pt - timedelta(days=days_ago)).date()
+    start_pt = datetime(target_pt.year, target_pt.month, target_pt.day, tzinfo=timezone.utc) - PT_OFFSET
     end_pt = start_pt + timedelta(days=1)
     return start_pt.isoformat(), end_pt.isoformat()
 
@@ -106,15 +106,9 @@ class ProductHuntEngine(BaseScraper):
         topic_blacklist = self.config.get("topic_blacklist", DEFAULT_TOPIC_BLACKLIST)
         t0 = time.time()
 
-        posted_after, posted_before = _yesterday_pt_range()
-
         headers = {
             "Authorization": f"Bearer {api_token}",
             "Content-Type": "application/json",
-        }
-        body = {
-            "query": GRAPHQL_QUERY,
-            "variables": {"postedAfter": posted_after, "postedBefore": posted_before},
         }
 
         fetched = 0
@@ -122,17 +116,33 @@ class ProductHuntEngine(BaseScraper):
         errors = 0
         items = []
 
-        try:
-            resp = _retry_post(PH_GRAPHQL_URL, body, headers, max_retries=max_retries)
-            if resp.status_code != 200:
-                print(f"  ❌ Product Hunt 返回 HTTP {resp.status_code}: {resp.text[:200]}")
+        # 昨天的帖子可能还没积累投票，回退到前天
+        edges = []
+        for days_ago in [1, 2]:
+            posted_after, posted_before = _pt_day_range(days_ago)
+            body = {
+                "query": GRAPHQL_QUERY,
+                "variables": {"postedAfter": posted_after, "postedBefore": posted_before},
+            }
+
+            try:
+                resp = _retry_post(PH_GRAPHQL_URL, body, headers, max_retries=max_retries)
+                if resp.status_code != 200:
+                    print(f"  ❌ Product Hunt 返回 HTTP {resp.status_code}: {resp.text[:200]}")
+                    return []
+
+                data = resp.json()
+                edges = data.get("data", {}).get("posts", {}).get("edges", [])
+            except Exception as e:
+                print(f"  ❌ Product Hunt 请求失败: {e}")
                 return []
 
-            data = resp.json()
-            edges = data.get("data", {}).get("posts", {}).get("edges", [])
-        except Exception as e:
-            print(f"  ❌ Product Hunt 请求失败: {e}")
-            return []
+            # 检查是否有投票数据，没有则回退
+            if edges:
+                top_votes = edges[0].get("node", {}).get("votesCount", 0)
+                if top_votes > 0:
+                    break
+                print(f"  ⚠️ PH {days_ago}天前帖子投票为 0，尝试更早日期")
 
         for edge in edges:
             node = edge.get("node", {})
