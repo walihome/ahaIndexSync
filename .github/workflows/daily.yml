@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: '0 18 * * *'  # 北京时间凌晨 2:00 (UTC+8)
   workflow_dispatch:
+    inputs:
+      override_date:
+        description: '回补日期（如 2026-05-03），留空使用当天日期'
+        required: false
+        default: ""
 
 jobs:
   run:
@@ -11,4 +16,5 @@ jobs:
     with:
       table_suffix: ""
       run_mode: "daily"
+      override_date: ${{ inputs.override_date }}
     secrets: inherit

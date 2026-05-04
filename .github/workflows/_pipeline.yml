@@ -15,6 +15,10 @@ on:
         description: '运行模式: daily / test / manual'
         type: string
         default: "daily"
+      override_date:
+        description: '指定 snapshot_date（如 2026-05-03），用于回补历史数据，留空使用当天日期'
+        type: string
+        default: ""
 
 jobs:
   run:
@@ -52,7 +56,13 @@ jobs:
           TABLE_SUFFIX: ${{ inputs.table_suffix }}
           RUN_MODE: ${{ inputs.run_mode }}
           SCRAPER_NAME: ${{ inputs.scraper_name }}
-        run: python main.py --mode "$RUN_MODE" --suffix "$TABLE_SUFFIX" --scraper "$SCRAPER_NAME"
+          OVERRIDE_DATE: ${{ inputs.override_date }}
+        run: |
+          ARGS="--mode $RUN_MODE --suffix $TABLE_SUFFIX --scraper $SCRAPER_NAME"
+          if [ -n "$OVERRIDE_DATE" ]; then
+            ARGS="$ARGS --date $OVERRIDE_DATE"
+          fi
+          python main.py $ARGS
 
       - name: Trigger ahaIndex2 dispatch
         if: ${{ inputs.run_mode != 'test' }}
