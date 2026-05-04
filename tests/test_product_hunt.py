@@ -3,7 +3,7 @@
 import os
 import unittest
 from unittest.mock import patch, MagicMock
-from scrapers.product_hunt import ProductHuntEngine, _yesterday_pt_range
+from scrapers.product_hunt import ProductHuntEngine, _pt_day_range
 
 
 def _make_post_node(overrides: dict) -> dict:
@@ -284,7 +284,7 @@ class TestPHErrorHandling(unittest.TestCase):
 class TestPHTimezone(unittest.TestCase):
 
     def test_yesterday_pt_range_returns_valid_iso(self):
-        start, end = _yesterday_pt_range()
+        start, end = _pt_day_range(1)
         # 验证是合法 ISO 格式
         from datetime import datetime as dt
         dt.fromisoformat(start)

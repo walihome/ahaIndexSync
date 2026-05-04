@@ -48,6 +48,7 @@ class HuggingFacePapersEngine(BaseScraper):
         source_type = self.config.get("source_type", "ARTICLE")
         content_type = self.config.get("content_type", "hf_papers")
         max_retries = self.config.get("max_retries", 3)
+        top_n = self.config.get("top_n", 3)
         t0 = time.time()
 
         # 计算日期：先抓今天，如果今天没出再抓昨天
@@ -78,6 +79,14 @@ class HuggingFacePapersEngine(BaseScraper):
         skipped = 0
         errors = 0
         items = []
+
+        # 按 upvotes 降序，取 top N
+        def _upvotes(entry):
+            p = entry.get("paper", entry)
+            uv = p.get("upvotes", 0)
+            return uv.get("total", 0) if isinstance(uv, dict) else (uv or 0)
+
+        papers = sorted(papers, key=_upvotes, reverse=True)[:top_n]
 
         for entry in papers:
             fetched += 1
@@ -165,7 +174,7 @@ class HuggingFaceModelsEngine(BaseScraper):
         min_downloads = self.config.get("min_downloads", 1000)
         quant_suffixes = self.config.get("quant_suffixes", DEFAULT_QUANT_SUFFIXES)
         deriv_suffixes = self.config.get("deriv_suffixes", DEFAULT_DERIV_SUFFIXES)
-        limit = self.config.get("limit", 100)
+        limit = self.config.get("limit", 3)
         t0 = time.time()
 
         fetched = 0
