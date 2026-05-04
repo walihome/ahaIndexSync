@@ -2,6 +2,11 @@ name: Run TEST
 
 on:
   workflow_dispatch:
+    inputs:
+      override_date:
+        description: '指定 snapshot_date（如 2026-05-03），留空使用当天日期'
+        required: false
+        default: ""
 
 jobs:
   run:
@@ -9,4 +14,5 @@ jobs:
     with:
       table_suffix: "_test"
       run_mode: "test"
+      override_date: ${{ inputs.override_date }}
     secrets: inherit
