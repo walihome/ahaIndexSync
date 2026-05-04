@@ -56,6 +56,26 @@ def _generate_daily(sb: Client, target: datetime.date) -> dict | None:
     top_tags = [tag for tag, _ in Counter(all_tags).most_common(3)]
 
     metrics = top_item.get('display_metrics') or {}
+
+    # ── 分位数计算（近 90 天窗口）──
+    window_start = target - datetime.timedelta(days=90)
+    hist_resp = sb.table('daily_archives').select('snapshot_date, aha_score').gte('snapshot_date', str(window_start)).lt('snapshot_date', target_str).execute()
+    hist_scores = [float(d['aha_score']) for d in (hist_resp.data or []) if d.get('aha_score') is not None]
+    sample_size = len(hist_scores)
+
+    if sample_size < 30:
+        percentile_90d = None
+        percentile_tier = 'insufficient_data'
+    else:
+        count_below = sum(1 for s in hist_scores if s < today_score)
+        percentile_90d = round(count_below / sample_size, 2)
+        if percentile_90d >= 0.90:
+            percentile_tier = 'p90_plus'
+        elif percentile_90d >= 0.70:
+            percentile_tier = 'p70_p90'
+        else:
+            percentile_tier = 'below_p70'
+
     row = {
         'snapshot_date': target_str,
         'aha_score': today_score,
@@ -67,9 +87,12 @@ def _generate_daily(sb: Client, target: datetime.date) -> dict | None:
         'rarity_score': int(v) if (v := metrics.get('rarity') or metrics.get('rarity_score')) is not None else None,
         'timeliness_score': int(v) if (v := metrics.get('timeliness') or metrics.get('timeliness_score')) is not None else None,
         'impact_score': int(v) if (v := metrics.get('impact') or metrics.get('impact_score')) is not None else None,
+        'percentile_90d': percentile_90d,
+        'percentile_tier': percentile_tier,
+        'sample_size_90d': sample_size,
     }
     sb.table('daily_archives').upsert(row).execute()
-    print(f"[daily] ✓ {target_str} | score={today_score} items={len(items)}")
+    print(f"[daily] ✓ {target_str} | score={today_score} items={len(items)} | p90d={percentile_90d} tier={percentile_tier} sample={sample_size}")
     return row
 
 
