@@ -281,14 +281,72 @@ INSERT INTO scraper_configs (scraper_type, name, priority, config) VALUES
     "source_tag": "dev_community"
 }');
 
+-- Reddit
+INSERT INTO scraper_configs (scraper_type, name, priority, config) VALUES
+('reddit', 'Reddit r/LocalLLaMA', 35, '{
+    "source_type": "NEWS",
+    "content_type": "reddit",
+    "subreddit": "LocalLLaMA",
+    "min_score": 50,
+    "skip_nsfw": true,
+    "skip_stickied": true,
+    "skip_discussion_below": 100,
+    "skip_self_text_below": 200,
+    "max_retries": 3,
+    "source_tag": "ai_community"
+}'),
+('reddit', 'Reddit r/MachineLearning', 35, '{
+    "source_type": "NEWS",
+    "content_type": "reddit",
+    "subreddit": "MachineLearning",
+    "min_score": 50,
+    "skip_nsfw": true,
+    "skip_stickied": true,
+    "skip_discussion_below": 100,
+    "skip_self_text_below": 200,
+    "max_retries": 3,
+    "source_tag": "ai_community"
+}');
+
+-- HuggingFace
+INSERT INTO scraper_configs (scraper_type, name, priority, config) VALUES
+('hf_papers', 'HuggingFace Papers', 55, '{
+    "source_type": "ARTICLE",
+    "content_type": "hf_papers",
+    "max_retries": 3,
+    "source_tag": "ai_research"
+}'),
+('hf_model', 'HuggingFace Models', 56, '{
+    "source_type": "REPO",
+    "content_type": "hf_model",
+    "min_likes": 50,
+    "min_downloads": 1000,
+    "limit": 100,
+    "max_retries": 3,
+    "source_tag": "ai_model"
+}');
+
+-- Product Hunt
+INSERT INTO scraper_configs (scraper_type, name, priority, config) VALUES
+('product_hunt', 'Product Hunt', 65, '{
+    "source_type": "PRODUCT",
+    "content_type": "product_hunt",
+    "min_votes": 200,
+    "max_retries": 3,
+    "topic_whitelist": ["artificial-intelligence","developer-tools","productivity","chatbots","no-code","open-source","machine-learning"],
+    "topic_blacklist": ["crypto","web3","nft","blockchain","defi","dao","token"],
+    "source_tag": "product_hunt"
+}');
+
 -- ── 2. rank_group_configs ───────────────────────────────────
 
 INSERT INTO rank_group_configs (group_name, source_names, "limit", must_include, sort_order) VALUES
 ('官方动态',  ARRAY['Anthropic Blog','OpenAI Blog','Mistral AI Blog','xAI Blog','Cohere Blog','Stability AI Blog'], 5, true, 10),
-('开源项目',  ARRAY['GitHub Trending','GitHub Search'], 10, false, 20),
-('技术社区',  ARRAY['HackerNews'], 10, false, 30),
+('开源项目',  ARRAY['GitHub Trending','GitHub Search','HuggingFace Models'], 10, false, 20),
+('AI 产品',  ARRAY['Product Hunt'], 3, false, 25),
+('技术社区',  ARRAY['HackerNews','Reddit r/LocalLLaMA','Reddit r/MachineLearning'], 10, false, 30),
 ('社交热点',  ARRAY['X (Twitter)','Twitter @anthropic','Twitter @openai','Twitter @GoogleDeepMind','Twitter @MetaAI','Twitter @MistralAI','Twitter @xai','Twitter @huggingface','Twitter @nvidia','Twitter @sama','Twitter @karpathy','Twitter @ylecun','Twitter @demishassabis','Twitter @GaryMarcus','Twitter @emollick','Twitter @drjimfan','Twitter @bindureddy','Twitter @ilyasut','Twitter @svpino','Twitter @hardmaru','Twitter @fchollet','Twitter @jeremyphoward','Twitter @alexalbert__','Twitter @swyx','Twitter @kaifulee','Twitter @drfeifei'], 5, false, 40),
-('学术论文',  ARRAY['Huggingface Daily Papers'], 5, false, 50),
+('学术论文',  ARRAY['Huggingface Daily Papers','HuggingFace Papers'], 5, false, 50),
 ('工程动态',  ARRAY['CNCF Blog','Chrome Developers Blog'], 3, false, 60),
 ('平台动态',  ARRAY['Apple Developer News'], 2, true, 70),
 ('国内资讯',  ARRAY['虎嗅','奇客Solidot'], 1, false, 80),
@@ -317,7 +375,11 @@ INSERT INTO display_metrics_configs (content_type, metrics) VALUES
 ('repo', '[{"label":"⭐ Stars","key":"stars","format":"number"},{"label":"📅 创建","key":"created_at","format":"days_ago"}]'),
 ('article', '[{"label":"📅 发布","key":"published_at","format":"date"}]'),
 ('tweet', '[{"label":"❤️ 点赞","key":"likes","format":"number"},{"label":"🔁 转发","key":"retweets","format":"number"},{"label":"💬 回复","key":"replies","format":"number"}]'),
-('news', '[{"label":"▲ 热度","key":"score","format":"number"},{"label":"💬 评论","key":"comments","format":"number"}]');
+('news', '[{"label":"▲ 热度","key":"score","format":"number"},{"label":"💬 评论","key":"comments","format":"number"}]'),
+('reddit', '[{"label":"▲ 热度","key":"score","format":"number"},{"label":"💬 评论","key":"comments","format":"number"}]'),
+('hf_papers', '[{"label":"▲ Upvotes","key":"upvotes","format":"number"},{"label":"💬 评论","key":"num_comments","format":"number"}]'),
+('hf_model', '[{"label":"❤️ Likes","key":"likes","format":"number"},{"label":"⬇️ Downloads","key":"downloads","format":"number"}]'),
+('product_hunt', '[{"label":"▲ Votes","key":"votes","format":"number"},{"label":"💬 Comments","key":"comments","format":"number"}]');
 
 -- ── 6. content_fetch_rules ──────────────────────────────────
 
