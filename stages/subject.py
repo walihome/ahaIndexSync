@@ -12,11 +12,11 @@ V1 自动创建仅限 type='project'（github:owner/repo）。其他 type 靠手
 from __future__ import annotations
 
 import threading
-from datetime import date
 
 from supabase import Client
 
 from infra.db import enrich_table_names
+from infra.time_utils import get_today_str
 
 
 _cache_lock = threading.Lock()
@@ -90,7 +90,7 @@ class SubjectRegistry:
         if type not in auto_create_types:
             return None
 
-        today = date.today().isoformat()
+        today = get_today_str()
         try:
             inserted = (
                 self.sb.table(self._subjects_table)

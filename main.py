@@ -18,12 +18,14 @@ def main():
     parser.add_argument("--mode", default=os.getenv("RUN_MODE", "daily"), help="运行模式: daily / test / manual")
     parser.add_argument("--suffix", default=os.getenv("TABLE_SUFFIX", ""), help="表后缀，如 _test")
     parser.add_argument("--scraper", default=os.getenv("SCRAPER_NAME", ""), help="指定 scraper name 或 type")
+    parser.add_argument("--date", default="", help="指定 snapshot_date（如 2026-05-03），用于回补历史数据")
     args = parser.parse_args()
 
     run_pipeline(
         mode=args.mode,
         table_suffix=args.suffix,
         scraper_name=args.scraper,
+        override_date=args.date or None,
     )
 
 
