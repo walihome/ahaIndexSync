@@ -39,3 +39,6 @@ def _load_all():
     import scrapers.ai_blog
     import scrapers.community_v2ex
     import scrapers.community_linuxdo
+    import scrapers.reddit
+    import scrapers.huggingface
+    import scrapers.product_hunt
