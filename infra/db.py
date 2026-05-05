@@ -288,12 +288,12 @@ def list_unenriched_items(
 
     query = (
         sb.table(c_tbl)
-        .select("item_id, raw_body, raw_items!inner(original_url, source_name)")
+        .select(f"item_id, raw_body, {r_tbl}!inner(original_url, source_name)")
         .is_("enriched_body", "null")
         .lt("fetch_attempts", max_attempts)
     )
     if snapshot_date:
-        query = query.eq("raw_items.snapshot_date", snapshot_date)
+        query = query.eq(f"{r_tbl}.snapshot_date", snapshot_date)
 
     return query.execute().data
 
