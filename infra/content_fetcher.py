@@ -8,7 +8,7 @@ import re
 import threading
 import requests
 import trafilatura
-from .models import RawItem
+from .models import RawItem, ContentRecord
 
 _trafilatura_lock = threading.Lock()
 
@@ -91,12 +91,20 @@ def _fetch_github_languages(url: str) -> str:
         return ""
 
 
-def enrich_body_text(item: RawItem, skip_domains: set[str] | None = None, fulltext_tags: set[str] | None = None) -> str:
+def enrich_body_text(
+    item: RawItem,
+    skip_domains: set[str] | None = None,
+    fulltext_tags: set[str] | None = None,
+    content: ContentRecord | None = None,
+) -> str:
+    """构建喂给 LLM 的内容。分源逻辑在此，数据来源从 items_content 读取。"""
     skip = skip_domains or {"twitter.com", "x.com", "medium.com", "zhihu.com", "v2ex.com"}
     tags = fulltext_tags or {"official_ai", "ai_research"}
+    raw_body = (content.raw_body if content else None) or item.body_text or ""
+    fallback = raw_body
 
     if any(domain in item.original_url for domain in skip):
-        return item.body_text or ""
+        return fallback
 
     if item.content_type == "repo" and "github.com" in item.original_url:
         readme = _fetch_github_readme(item.original_url)
@@ -104,20 +112,31 @@ def enrich_body_text(item: RawItem, skip_domains: set[str] | None = None, fullte
             lang_prefix = _fetch_github_languages(item.original_url)
             print(f"  📄 README: {item.title[:40]}")
             return lang_prefix + readme
-        return item.body_text or ""
+        return fallback
 
     if item.extra.get("source_tag") in tags:
-        content = _fetch_webpage(item.original_url)
-        if content:
-            print(f"  📄 正文: {item.title[:40]}")
-            return content
-        return item.body_text or ""
+        # 优先用 items_content 的全文，回退到现场抓
+        enriched = content.enriched_body if content else None
+        if enriched:
+            print(f"  📄 全文(items_content): {item.title[:40]}")
+            return enriched
+        fetched = _fetch_webpage(item.original_url)
+        if fetched:
+            print(f"  📄 正文(现场抓): {item.title[:40]}")
+            return fetched
+        return fallback
 
     if item.source_name == "HackerNews" and "news.ycombinator.com" not in item.original_url:
-        content = _fetch_webpage(item.original_url)
-        if content:
-            print(f"  📄 HN原文: {item.title[:40]}")
-            return content
-        return item.body_text or ""
+        enriched = content.enriched_body if content else None
+        if enriched:
+            print(f"  📄 HN全文(items_content): {item.title[:40]}")
+            return enriched
+        fetched = _fetch_webpage(item.original_url)
+        if fetched:
+            print(f"  📄 HN原文(现场抓): {item.title[:40]}")
+            return fetched
+        return fallback
 
-    return item.body_text or ""
+    # 默认：优先用全文，回退到原始摘要
+    enriched = content.enriched_body if content else None
+    return enriched or fallback

@@ -42,7 +42,7 @@ def run_pipeline(
     config = load_config(sb)
 
     if scraper_name:
-        config.scrapers = [s for s in config.scrapers if s.name == scraper_name or s.scraper_type == scraper_name]
+        config.scrapers = [s for s in config.scrapers if s.name == scraper_name or s.scraper_type == scraper_name or s.slug == scraper_name]
         if not config.scrapers:
             print(f"❌ 找不到 scraper: {scraper_name}")
             return
@@ -50,7 +50,13 @@ def run_pipeline(
     tracker = RunTracker(sb, run_type=mode, table_suffix=table_suffix)
     tracker.start_run(config.to_snapshot())
 
-    stats = {"scraped": 0, "processed": 0, "coarse_survived": 0, "enriched": 0, "ranked": 0, "archived": 0, "errors": 0}
+    stats = {"scraped": 0, "fetched_content": 0, "processed": 0, "coarse_survived": 0, "enriched": 0, "ranked": 0, "archived": 0, "errors": 0}
+
+    # 计算 snapshot_date 供各 stage 使用
+    from infra.time_utils import get_today_str
+    from datetime import date as date_cls
+    snapshot_date_str = override_date or get_today_str()
+    snapshot_date = date_cls.fromisoformat(snapshot_date_str)
 
     try:
         # Stage 1: Scrape
@@ -58,16 +64,27 @@ def run_pipeline(
         print("📡 Stage 1: Scrape")
         print(f"{'─' * 40}")
         from stages.scrape import run_scrape
-        scrape_stats = run_scrape(sb, config, tracker, table_suffix)
+        scrape_stats = run_scrape(sb, config, tracker, table_suffix, snapshot_date=snapshot_date)
         stats["scraped"] = scrape_stats.get("saved", 0)
         stats["errors"] += scrape_stats.get("errors", 0)
+
+        # Stage 1.5: Fetch Content (全文抓取)
+        print(f"\n{'─' * 40}")
+        print("📥 Stage 1.5: Fetch Content")
+        print(f"{'─' * 40}")
+        try:
+            from stages.fetch_content import run_fetch_content
+            fetch_stats = run_fetch_content(sb, config, table_suffix, snapshot_date=snapshot_date_str)
+            stats["fetched_content"] = fetch_stats.get("success", 0)
+        except Exception as e:
+            print(f"⚠️ Fetch Content 阶段异常（降级为无全文）: {e}")
 
         # Stage 2: Process
         print(f"\n{'─' * 40}")
         print("🤖 Stage 2: Process")
         print(f"{'─' * 40}")
         from stages.process import run_process
-        process_stats = run_process(sb, config, table_suffix)
+        process_stats = run_process(sb, config, table_suffix, snapshot_date=snapshot_date_str)
         stats["processed"] = process_stats.get("success", 0)
         stats["errors"] += process_stats.get("failed", 0)
 
@@ -119,6 +136,7 @@ def run_pipeline(
     total_cost = (datetime.now() - start_time).total_seconds()
     print(f"\n{'═' * 60}")
     print(f"✨ Pipeline 完成 | {total_cost:.1f}s | scraped={stats['scraped']} "
-          f"processed={stats['processed']} coarse={stats['coarse_survived']} "
-          f"enriched={stats['enriched']} ranked={stats['ranked']} errors={stats['errors']}")
+          f"fetched={stats['fetched_content']} processed={stats['processed']} "
+          f"coarse={stats['coarse_survived']} enriched={stats['enriched']} "
+          f"ranked={stats['ranked']} errors={stats['errors']}")
     print(f"{'═' * 60}\n")

@@ -36,6 +36,9 @@ class ScraperConfig:
     name: str
     priority: int
     config: dict
+    slug: str = ''
+    source_type: str = ''
+    content_type: str = ''
 
 
 @dataclass
@@ -98,7 +101,7 @@ class PipelineConfig:
 
     def to_snapshot(self) -> dict:
         return {
-            "scrapers": [{"id": s.id, "type": s.scraper_type, "name": s.name} for s in self.scrapers],
+            "scrapers": [{"id": s.id, "type": s.scraper_type, "name": s.name, "slug": s.slug} for s in self.scrapers],
             "prompts": {k: {"model": v.model, "version": v.version} for k, v in self.prompts.items()},
             "rank_groups": [{"group": g.group_name, "limit": g.limit} for g in self.rank_groups],
             "tag_slots": {t.tag_name: t.max_slots for t in self.tag_slots},
@@ -114,6 +117,9 @@ def load_config(sb: Client) -> PipelineConfig:
         ScraperConfig(
             id=r["id"], scraper_type=r["scraper_type"], name=r["name"],
             priority=r["priority"], config=r["config"] if isinstance(r["config"], dict) else json.loads(r["config"]),
+            slug=r.get("slug", ""),
+            source_type=r.get("source_type", ""),
+            content_type=r.get("content_type", ""),
         )
         for r in rows
     ]

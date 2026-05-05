@@ -9,16 +9,16 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from supabase import Client
 from pipeline.config_loader import PipelineConfig
-from infra.db import get_pending_items, upsert_processed_item, table_names
+from infra.db import get_pending_items_with_content, upsert_processed_item, table_names
 from infra.llm import call_llm
 from infra.content_fetcher import enrich_body_text
 from infra.display_metrics import build_display_metrics
-from infra.models import RawItem
+from infra.models import RawItem, ContentRecord
 
 
-def _process_item(item: RawItem, config: PipelineConfig, api_key: str, processed_table: str) -> tuple[bool, str]:
+def _process_item(item: RawItem, content: ContentRecord, config: PipelineConfig, api_key: str, processed_table: str) -> tuple[bool, str]:
     try:
-        item.body_text = enrich_body_text(item, config.skip_domains, config.fulltext_tags)
+        item.body_text = enrich_body_text(item, config.skip_domains, config.fulltext_tags, content=content)
 
         prompt_cfg = config.get_prompt("process_main")
         if not prompt_cfg:
@@ -49,13 +49,13 @@ def _process_item(item: RawItem, config: PipelineConfig, api_key: str, processed
         return False, item.title
 
 
-def run_process(sb: Client, config: PipelineConfig, table_suffix: str = "") -> dict:
-    raw_table, processed_table, _ = table_names(table_suffix)
+def run_process(sb: Client, config: PipelineConfig, table_suffix: str = "", snapshot_date: str | None = None) -> dict:
+    raw_table, processed_table, _, content_table = table_names(table_suffix)
     api_key = os.getenv("KIMI_API_KEY", "")
     max_workers = int(config.get_param("process_max_workers", 3))
     fetch_window = int(config.get_param("fetch_window_hours", 24))
 
-    pending = get_pending_items(raw_table, processed_table, fetch_window)
+    pending = get_pending_items_with_content(raw_table, content_table, processed_table, fetch_window, snapshot_date=snapshot_date)
     print(f"📋 待处理 {len(pending)} 条，并发数 {max_workers}")
 
     if not pending:
@@ -66,8 +66,8 @@ def run_process(sb: Client, config: PipelineConfig, table_suffix: str = "") -> d
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
-            executor.submit(_process_item, item, config, api_key, processed_table): item
-            for item in pending
+            executor.submit(_process_item, item, content, config, api_key, processed_table): item
+            for item, content in pending
         }
         for future in as_completed(futures):
             ok, title = future.result()
