@@ -50,7 +50,7 @@ def run_pipeline(
     tracker = RunTracker(sb, run_type=mode, table_suffix=table_suffix)
     tracker.start_run(config.to_snapshot())
 
-    stats = {"scraped": 0, "fetched_content": 0, "processed": 0, "coarse_survived": 0, "enriched": 0, "ranked": 0, "archived": 0, "errors": 0}
+    stats = {"scraped": 0, "fetched_content": 0, "processed": 0, "coarse_survived": 0, "enriched": 0, "ranked": 0, "archived": 0, "aggregated": 0, "errors": 0}
 
     # 计算 snapshot_date 供各 stage 使用
     from infra.time_utils import get_today_str
@@ -136,6 +136,15 @@ def run_pipeline(
             archive_stats = run_archive(sb, config)
             stats["archived"] = archive_stats.get("daily", 0)
 
+            # Stage 6: Aggregate Projects (only for production runs)
+            print(f"\n{'─' * 40}")
+            print("📊 Stage 6: Aggregate Projects")
+            print(f"{'─' * 40}")
+            from stages.aggregate_projects import run_aggregate_projects
+            from infra.time_utils import get_today_str
+            agg_stats = run_aggregate_projects(sb, get_today_str())
+            stats["aggregated"] = agg_stats.get("rows_written_today", 0)
+
         tracker.finish_run(stats)
 
     except Exception as e:
@@ -149,5 +158,6 @@ def run_pipeline(
     print(f"✨ Pipeline 完成 | {total_cost:.1f}s | scraped={stats['scraped']} "
           f"fetched={stats['fetched_content']} processed={stats['processed']} "
           f"coarse={stats['coarse_survived']} enriched={stats['enriched']} "
-          f"ranked={stats['ranked']} errors={stats['errors']}")
+          f"ranked={stats['ranked']} archived={stats['archived']} "
+          f"aggregated={stats['aggregated']} errors={stats['errors']}")
     print(f"{'═' * 60}\n")
