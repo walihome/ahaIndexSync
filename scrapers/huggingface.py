@@ -5,6 +5,7 @@ import time
 import requests
 from datetime import datetime, timezone, timedelta
 from infra.models import BaseScraper, RawItem
+from infra.oss import upload_image_to_oss
 from scrapers.registry import register
 
 HF_PAPERS_URL = "https://huggingface.co/api/daily_papers"
@@ -133,6 +134,13 @@ class HuggingFacePapersEngine(BaseScraper):
                 related_models = paper.get("relatedModels", [])
                 related_datasets = paper.get("relatedDatasets", [])
 
+                # thumbnail (上传到 OSS，仅处理图片 URL)
+                raw_thumbnail = entry.get("thumbnail", "")
+                thumbnail_url = ""
+                if raw_thumbnail and any(raw_thumbnail.lower().endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".webp", ".gif")):
+                    thumbnail_url = upload_image_to_oss(raw_thumbnail) or raw_thumbnail
+                media_urls = entry.get("mediaUrls", [])
+
                 item = RawItem(
                     title=title,
                     original_url=url,
@@ -149,6 +157,8 @@ class HuggingFacePapersEngine(BaseScraper):
                         "related_models": related_models,
                         "related_datasets": related_datasets,
                         "source_tag": "ai_research",
+                        "thumbnail_url": thumbnail_url,
+                        "media_urls": media_urls,
                     },
                     published_at=published_at,
                 )
