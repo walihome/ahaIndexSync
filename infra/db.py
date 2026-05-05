@@ -173,7 +173,7 @@ def get_pending_items_with_content(
     proc_tbl = processed_table or PROCESSED_TABLE
 
     query = sb.table(raw_tbl).select(
-        "*, items_content(raw_body, enriched_body, enriched_source, enriched_quality, fetch_attempts)"
+        f"*, {cont_tbl}(raw_body, enriched_body, enriched_source, enriched_quality, fetch_attempts)"
     )
     if snapshot_date:
         # 阶段 5 之后：按 snapshot_date 过滤

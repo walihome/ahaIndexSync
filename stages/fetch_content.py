@@ -20,14 +20,17 @@ def run_fetch_content(sb: Client, config: PipelineConfig, table_suffix: str = ""
     skip_domains = config.skip_domains or {"twitter.com", "x.com", "medium.com", "zhihu.com", "v2ex.com"}
 
     # 查询待处理条目
+    # JOIN 表名需要跟随后缀
+    raw_table = "raw_items_test" if table_suffix == "_test" else "raw_items"
+
     query = (
         sb.table(content_table)
-        .select("item_id, raw_body, raw_items!inner(original_url, source_name)")
+        .select(f"item_id, raw_body, {raw_table}!inner(original_url, source_name)")
         .is_("enriched_body", "null")
         .lt("fetch_attempts", 3)
     )
     if snapshot_date:
-        query = query.eq("raw_items.snapshot_date", snapshot_date)
+        query = query.eq(f"{raw_table}.snapshot_date", snapshot_date)
 
     pending = query.execute().data or []
 
