@@ -35,7 +35,6 @@ def _load_all():
     import scrapers.hackernews
     import scrapers.rss_feed
     import scrapers.twitter_twscrape
-    import scrapers.twitter_nitter
     import scrapers.ai_blog
     import scrapers.community_v2ex
     import scrapers.community_linuxdo
