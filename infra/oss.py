@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import time
 from datetime import date
 from urllib.parse import urlparse
 
@@ -92,10 +93,17 @@ def upload_image_to_oss(url: str, date_str: str | None = None) -> str | None:
         date_str = date.today().strftime("%Y%m%d")
 
     try:
-        resp = requests.get(url, timeout=DOWNLOAD_TIMEOUT, stream=True, headers={
-            "User-Agent": "Mozilla/5.0 (compatible; ImageFetcher/1.0)",
-        })
-        if resp.status_code != 200:
+        resp = None
+        for attempt in range(3):
+            resp = requests.get(url, timeout=DOWNLOAD_TIMEOUT, stream=True, headers={
+                "User-Agent": "Mozilla/5.0 (compatible; ImageFetcher/1.0)",
+            })
+            if resp.status_code == 200:
+                break
+            if attempt < 2:
+                print(f"  ⏳ 图片下载 {resp.status_code}，3s 后重试 ({attempt + 1}/2): {url[:60]}")
+                time.sleep(3)
+        if resp is None or resp.status_code != 200:
             print(f"  ⚠️ 图片下载失败 [{resp.status_code}]: {url[:80]}")
             return None
 
