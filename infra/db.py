@@ -317,7 +317,7 @@ def update_enriched_content(
         update["enriched_quality"] = enriched_quality
     sb.table(tbl).update(update).eq("item_id", item_id).execute()
     # fetch_attempts 通过 SQL 或 RPC 原子 +1，这里用应用层兜底
-    sb.rpc("increment_fetch_attempts", {"p_item_id": item_id}).execute()
+    sb.rpc("increment_fetch_attempts", {"p_item_id": item_id, "p_table": tbl}).execute()
 
 
 def record_fetch_failure(item_id: str, error: str, content_table: str | None = None) -> None:
@@ -327,4 +327,4 @@ def record_fetch_failure(item_id: str, error: str, content_table: str | None = N
     sb.table(tbl).update({
         "last_fetch_error": error[:500],
     }).eq("item_id", item_id).execute()
-    sb.rpc("increment_fetch_attempts", {"p_item_id": item_id}).execute()
+    sb.rpc("increment_fetch_attempts", {"p_item_id": item_id, "p_table": tbl}).execute()

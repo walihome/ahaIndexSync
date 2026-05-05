@@ -84,16 +84,18 @@ CREATE TRIGGER trigger_update_items_content_test_updated_at
 COMMENT ON TABLE items_content_test IS 'items_content 的测试隔离表';
 
 -- fetch_attempts 原子递增函数（供 fetch_content stage 调用）
-CREATE OR REPLACE FUNCTION increment_fetch_attempts(p_item_id TEXT)
+-- p_table: 'items_content' 或 'items_content_test'
+CREATE OR REPLACE FUNCTION increment_fetch_attempts(p_item_id TEXT, p_table TEXT DEFAULT 'items_content')
 RETURNS VOID AS $$
 BEGIN
-    UPDATE items_content
-    SET fetch_attempts = fetch_attempts + 1
-    WHERE item_id = p_item_id;
+    EXECUTE format(
+        'UPDATE %I SET fetch_attempts = fetch_attempts + 1 WHERE item_id = $1',
+        p_table
+    ) USING p_item_id;
 END;
 $$ LANGUAGE plpgsql;
 
 COMMENT ON FUNCTION increment_fetch_attempts IS
-    'fetch_content stage 调用：原子递增 fetch_attempts 计数器';
+    'fetch_content stage 调用：原子递增 fetch_attempts 计数器。p_table 支持 test 表。';
 
 COMMIT;
