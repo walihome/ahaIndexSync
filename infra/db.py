@@ -229,7 +229,7 @@ def get_pending_items_with_content(
             published_at=published_at,
         )
 
-        content_data = r.get("items_content") or {}
+        content_data = r.get(cont_tbl) or {}
         content = ContentRecord(
             item_id=r["id"],
             raw_body=content_data.get("raw_body"),

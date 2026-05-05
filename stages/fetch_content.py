@@ -43,8 +43,8 @@ def run_fetch_content(sb: Client, config: PipelineConfig, table_suffix: str = ""
 
     for row in pending:
         item_id = row["item_id"]
-        url = row["raw_items"]["original_url"]
-        source_name = row["raw_items"].get("source_name", "")
+        url = row[raw_table]["original_url"]
+        source_name = row[raw_table].get("source_name", "")
 
         # skip_domains 命中的源跳过
         if any(domain in url for domain in skip_domains):
