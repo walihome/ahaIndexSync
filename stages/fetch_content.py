@@ -57,15 +57,14 @@ def run_fetch_content(sb: Client, config: PipelineConfig, table_suffix: str = ""
                 "enriched_body": text,
                 "enriched_source": "jina",
             }).eq("item_id", item_id).execute()
-            # fetch_attempts 通过 trigger 或 RPC 递增
-            sb.rpc("increment_fetch_attempts", {"p_item_id": item_id}).execute()
+            sb.rpc("increment_fetch_attempts", {"p_item_id": item_id, "p_table": content_table}).execute()
             success += 1
             print(f"    ✅ {source_name}: {url[:60]}")
         except Exception as e:
             sb.table(content_table).update({
                 "last_fetch_error": str(e)[:500],
             }).eq("item_id", item_id).execute()
-            sb.rpc("increment_fetch_attempts", {"p_item_id": item_id}).execute()
+            sb.rpc("increment_fetch_attempts", {"p_item_id": item_id, "p_table": content_table}).execute()
             failed += 1
             print(f"    ❌ {source_name}: {e}")
 
