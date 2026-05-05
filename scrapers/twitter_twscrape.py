@@ -15,6 +15,9 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 from infra.models import BaseScraper, RawItem
 from scrapers.registry import register
 
+# 并发控制：避免同时太多请求触发限流
+_SEM = asyncio.Semaphore(5)
+
 
 # ---------------------------------------------------------------------------
 # 内部数据结构 — 隔离第三方 schema，切换 provider 时只改 _from_api_response
@@ -72,7 +75,14 @@ class TwitterTwscrapeEngine(BaseScraper):
     def fetch(self) -> list[RawItem]:
         try:
             return asyncio.run(self._fetch_all())
+        except KeyboardInterrupt:
+            raise
         except Exception as e:
+            # SIGALRM 产生的 _TimeoutError 是 BaseException 的子类，
+            # 但 Python 3 中 signal 只能在主线程使用，asyncio.run 会把它包装成
+            # 普通异常。这里直接 re-raise 让 scrape.py 的 _TimeoutError 处理块捕获。
+            if "超时" in str(e):
+                raise
             print(f"⚠️ TwitterScraper 失败: {e}")
             return []
 
@@ -87,6 +97,7 @@ class TwitterTwscrapeEngine(BaseScraper):
         max_age = self.config.get("max_age_days", 2)
         cutoff = datetime.now(timezone.utc) - timedelta(days=max_age)
         seen: set[str] = set()
+        lock = asyncio.Lock()
         items: list[RawItem] = []
 
         async with httpx.AsyncClient(
@@ -96,50 +107,64 @@ class TwitterTwscrapeEngine(BaseScraper):
         ) as client:
             self._client = client
 
-            # 关键词搜索
-            keywords = self.config.get("tracked_keywords", [])
-            print(f"  开始关键词搜索，共 {len(keywords)} 个关键词")
-            for kw in keywords:
-                query = f'"{kw}" -is:retweet lang:en min_faves:100'
-                try:
-                    tweets = await self._paginated_fetch(
-                        "/twitter/tweet/advanced_search",
-                        {"query": query, "queryType": "Latest"},
-                        cutoff,
-                    )
-                    new_count = 0
-                    for tw in tweets:
-                        item = self._to_raw_item(tw, cutoff, seen)
-                        if item:
-                            items.append(item)
-                            new_count += 1
-                    print(f"  [搜索] {kw} → {new_count} 条")
-                except Exception as e:
-                    print(f"  [搜索] 失败 ({kw}): {e}")
+            # ---- 单个关键词搜索 ----
+            async def _search_keyword(kw: str) -> int:
+                async with _SEM:
+                    query = f'"{kw}" -is:retweet lang:en min_faves:100'
+                    try:
+                        tweets = await self._paginated_fetch(
+                            "/twitter/tweet/advanced_search",
+                            {"query": query, "queryType": "Latest"},
+                            cutoff,
+                        )
+                        new_count = 0
+                        for tw in tweets:
+                            item = self._to_raw_item(tw, cutoff, seen)
+                            if item:
+                                async with lock:
+                                    items.append(item)
+                                new_count += 1
+                        print(f"  [搜索] {kw} → {new_count} 条")
+                        return new_count
+                    except Exception as e:
+                        print(f"  [搜索] 失败 ({kw}): {e}")
+                        return 0
 
-            # 账号时间线
+            # ---- 单个账号时间线 ----
+            async def _fetch_account(username: str) -> int:
+                async with _SEM:
+                    min_faves = self.config.get("timeline_min_faves", 50)
+                    try:
+                        tweets = await self._paginated_fetch(
+                            "/twitter/user/last_tweets",
+                            {"userName": username},
+                            cutoff,
+                        )
+                        new_count = 0
+                        for tw in tweets:
+                            if tw.likes < min_faves:
+                                continue
+                            item = self._to_raw_item(tw, cutoff, seen)
+                            if item:
+                                async with lock:
+                                    items.append(item)
+                                new_count += 1
+                        if new_count:
+                            print(f"  [@{username}] → {new_count} 条")
+                        return new_count
+                    except Exception as e:
+                        print(f"  [@{username}] 失败: {e}")
+                        return 0
+
+            # 并发执行关键词搜索
+            keywords = self.config.get("tracked_keywords", [])
+            print(f"  开始关键词搜索，共 {len(keywords)} 个关键词（并发 5）")
+            await asyncio.gather(*[_search_keyword(kw) for kw in keywords])
+
+            # 并发执行账号时间线
             accounts = self.config.get("watch_accounts", [])
-            min_faves = self.config.get("timeline_min_faves", 50)
-            print(f"  开始账号时间线抓取，共 {len(accounts)} 个账号")
-            for username in accounts:
-                try:
-                    tweets = await self._paginated_fetch(
-                        "/twitter/user/last_tweets",
-                        {"userName": username},
-                        cutoff,
-                    )
-                    new_count = 0
-                    for tw in tweets:
-                        if tw.likes < min_faves:
-                            continue
-                        item = self._to_raw_item(tw, cutoff, seen)
-                        if item:
-                            items.append(item)
-                            new_count += 1
-                    if new_count:
-                        print(f"  [@{username}] → {new_count} 条")
-                except Exception as e:
-                    print(f"  [@{username}] 失败: {e}")
+            print(f"  开始账号时间线抓取，共 {len(accounts)} 个账号（并发 5）")
+            await asyncio.gather(*[_fetch_account(u) for u in accounts])
 
         print(f"  共抓取 {len(items)} 条（去重后）")
         return items
@@ -153,7 +178,7 @@ class TwitterTwscrapeEngine(BaseScraper):
         cutoff: datetime,
         max_pages: int = 5,
     ) -> list[_Tweet]:
-        """循环拉取分页，遇到老于 cutoff 的推文就停止。"""
+        """循环拉取分页，遇到老于 cutoff 的推文或空页就停止。"""
         all_tweets: list[_Tweet] = []
         cursor = None
         for _ in range(max_pages):
@@ -164,9 +189,12 @@ class TwitterTwscrapeEngine(BaseScraper):
             # 响应结构: {"data": {"tweets": [...]}, "has_next_page": bool, "next_cursor": str}
             inner = resp.get("data") or {}
             tweets = [self._from_api_response(t) for t in inner.get("tweets", [])]
+            # 空页直接停止（API 可能返回 has_next_page=true 但实际无数据）
+            if not tweets:
+                break
             all_tweets.extend(tweets)
             # 早停：本页最旧的推文已老于 cutoff
-            if tweets and tweets[-1].created_at < cutoff:
+            if tweets[-1].created_at < cutoff:
                 break
             if not resp.get("has_next_page"):
                 break
