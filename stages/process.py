@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import json
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -14,6 +15,42 @@ from infra.llm import call_llm
 from infra.content_fetcher import enrich_body_text
 from infra.display_metrics import build_display_metrics
 from infra.models import RawItem, ContentRecord
+from infra.oss import upload_image_to_oss
+
+
+_IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".gif")
+_VIDEO_EXTS = (".mp4", ".webm", ".mov")
+
+
+def _extract_and_upload_media(item: RawItem, content: ContentRecord) -> None:
+    """从 enriched_body 提取非头像图片，与 extra.media_urls 合并后上传 OSS。"""
+    urls: list[str] = []
+
+    # 1. 从 enriched_body 提取
+    body = content.enriched_body or ""
+    if body:
+        for alt, url in re.findall(r'!\[([^\]]*)\]\(([^)]+)\)', body):
+            lower = url.lower()
+            if "avatar" in lower or "logo" in lower:
+                continue
+            if any(lower.endswith(ext) for ext in _IMAGE_EXTS + _VIDEO_EXTS):
+                urls.append(url)
+
+    # 2. 合并 scraper 已有的 media_urls
+    existing = item.extra.get("media_urls") or []
+    urls = list(dict.fromkeys(existing + urls))  # 去重保序
+
+    # 3. 上传图片到 OSS（视频保留原始链接）
+    date_str = datetime.utcnow().strftime("%Y%m%d")
+    oss_urls: list[str] = []
+    for u in urls:
+        if any(u.lower().endswith(ext) for ext in _VIDEO_EXTS):
+            oss_urls.append(u)  # 视频不上传
+        else:
+            oss_urls.append(upload_image_to_oss(u, date_str) or u)
+
+    if oss_urls:
+        item.extra["media_urls"] = oss_urls
 
 
 def _process_item(item: RawItem, content: ContentRecord, config: PipelineConfig, api_key: str, processed_table: str) -> tuple[bool, str]:
@@ -39,6 +76,9 @@ def _process_item(item: RawItem, content: ContentRecord, config: PipelineConfig,
         ai_data = call_llm(prompt, prompt_cfg, system_prompt=system_prompt, api_key=api_key)
         if not ai_data:
             return False, item.title
+
+        # 提取 enriched_body 中的非头像图片，合并到 media_urls 并上传 OSS
+        _extract_and_upload_media(item, content)
 
         display_metrics = build_display_metrics(item, config.display_metrics or None)
         upsert_processed_item(item, ai_data, display_metrics, processed_table)
