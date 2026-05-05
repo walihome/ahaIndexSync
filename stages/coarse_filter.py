@@ -61,7 +61,7 @@ def _check_links_batch(candidates: list[dict], max_workers: int = 10) -> tuple[l
 
 
 def run_coarse_filter(sb: Client, config: PipelineConfig, table_suffix: str = "") -> dict:
-    _, processed_table, _ = table_names(table_suffix)
+    _, processed_table, _, _ = table_names(table_suffix)
     today = today_str()
 
     min_aha = float(config.get_param("coarse_filter_min_aha", 0.25))

@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import signal
-from datetime import datetime
+from datetime import datetime, date
 
 from supabase import Client
 from pipeline.config_loader import PipelineConfig
 from pipeline.run_tracker import RunTracker
-from infra.db import upsert_raw_item, table_names
+from infra.db import upsert_raw_item, upsert_content_initial, table_names
 from scrapers.registry import get_engine
 
 
@@ -20,8 +20,8 @@ def _timeout_handler(signum, frame):
     raise _TimeoutError("超时")
 
 
-def run_scrape(sb: Client, config: PipelineConfig, tracker: RunTracker, table_suffix: str = "") -> dict:
-    raw_table, _, _ = table_names(table_suffix)
+def run_scrape(sb: Client, config: PipelineConfig, tracker: RunTracker, table_suffix: str = "", snapshot_date: date | None = None) -> dict:
+    raw_table, _, _, content_table = table_names(table_suffix)
     timeout = int(config.get_param("scraper_timeout", 120))
 
     total_saved = 0
@@ -51,7 +51,19 @@ def run_scrape(sb: Client, config: PipelineConfig, tracker: RunTracker, table_su
             saved = 0
             for item in items:
                 try:
+                    # 注入阶段 5 字段
+                    if snapshot_date:
+                        item.snapshot_date = snapshot_date
+                    if sc.slug:
+                        item.scraper_slug = sc.slug
+                    if sc.source_type:
+                        item.source_type = sc.source_type
+                    if sc.content_type:
+                        item.content_type = sc.content_type
+                    item.scraper_config_snapshot = sc.config
+
                     upsert_raw_item(item, raw_table)
+                    upsert_content_initial(item.id, item.body_text, content_table)
                     saved += 1
                 except Exception as e:
                     print(f"  ⚠️ 写库失败: {item.title[:40]} | {e}")

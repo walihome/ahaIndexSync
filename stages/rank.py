@@ -514,7 +514,7 @@ def run_rank(
     candidates: 上游 coarse_filter 传入的候选列表。
       - 若为 None，退化为从 processed_items 读取并做基本去重，保证向后兼容。
     """
-    _, processed_table, display_table = table_names(table_suffix)
+    _, processed_table, display_table, _ = table_names(table_suffix)
     api_key = os.getenv("KIMI_API_KEY", "")
     today = today_str()
 
