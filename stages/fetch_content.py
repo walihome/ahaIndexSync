@@ -49,11 +49,10 @@ def run_fetch_content(sb: Client, config: PipelineConfig, table_suffix: str = ""
             continue
 
         try:
-            text, quality = jina_fetch(url)
+            text = jina_fetch(url)
             sb.table(content_table).update({
                 "enriched_body": text,
                 "enriched_source": "jina",
-                "enriched_quality": quality,
             }).eq("item_id", item_id).execute()
             # fetch_attempts 通过 trigger 或 RPC 递增
             sb.rpc("increment_fetch_attempts", {"p_item_id": item_id}).execute()

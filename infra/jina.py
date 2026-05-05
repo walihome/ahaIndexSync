@@ -18,11 +18,11 @@ HEADERS = {
 }
 
 
-def fetch_fulltext(url: str, timeout: int = 30) -> tuple[str, float]:
+def fetch_fulltext(url: str, timeout: int = 30) -> str:
     """用 Jina Reader 抓取 URL 全文。
 
     Returns:
-        (text, quality_score): 全文文本和质量分（0.0-1.0）
+        全文文本
 
     Raises:
         Exception: 抓取失败时抛出
@@ -37,17 +37,4 @@ def fetch_fulltext(url: str, timeout: int = 30) -> tuple[str, float]:
     if not text:
         raise Exception("Jina returned empty content")
 
-    # 简单质量评分：基于文本长度
-    length = len(text)
-    if length < 100:
-        quality = 0.1
-    elif length < 500:
-        quality = 0.3
-    elif length < 2000:
-        quality = 0.6
-    elif length < 5000:
-        quality = 0.8
-    else:
-        quality = 0.9
-
-    return text, quality
+    return text
