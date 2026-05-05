@@ -173,7 +173,7 @@ def get_pending_items_with_content(
     proc_tbl = processed_table or PROCESSED_TABLE
 
     query = sb.table(raw_tbl).select(
-        "*, items_content(raw_body, enriched_body, enriched_source, enriched_quality, fetch_attempts)"
+        f"*, {cont_tbl}(raw_body, enriched_body, enriched_source, enriched_quality, fetch_attempts)"
     )
     if snapshot_date:
         # 阶段 5 之后：按 snapshot_date 过滤
@@ -229,7 +229,7 @@ def get_pending_items_with_content(
             published_at=published_at,
         )
 
-        content_data = r.get("items_content") or {}
+        content_data = r.get(cont_tbl) or {}
         content = ContentRecord(
             item_id=r["id"],
             raw_body=content_data.get("raw_body"),
@@ -288,12 +288,12 @@ def list_unenriched_items(
 
     query = (
         sb.table(c_tbl)
-        .select("item_id, raw_body, raw_items!inner(original_url, source_name)")
+        .select(f"item_id, raw_body, {r_tbl}!inner(original_url, source_name)")
         .is_("enriched_body", "null")
         .lt("fetch_attempts", max_attempts)
     )
     if snapshot_date:
-        query = query.eq("raw_items.snapshot_date", snapshot_date)
+        query = query.eq(f"{r_tbl}.snapshot_date", snapshot_date)
 
     return query.execute().data
 
