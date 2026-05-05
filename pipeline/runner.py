@@ -41,11 +41,14 @@ def run_pipeline(
     sb = get_supabase()
     config = load_config(sb)
 
+    scrape_only = False
     if scraper_name:
         config.scrapers = [s for s in config.scrapers if s.name == scraper_name or s.scraper_type == scraper_name or s.slug == scraper_name]
         if not config.scrapers:
             print(f"❌ 找不到 scraper: {scraper_name}")
             return
+        scrape_only = True
+        print(f"  🎯 指定 scraper: {scraper_name}，仅运行 scrape 阶段")
 
     tracker = RunTracker(sb, run_type=mode, table_suffix=table_suffix)
     tracker.start_run(config.to_snapshot())
@@ -68,53 +71,54 @@ def run_pipeline(
         stats["scraped"] = scrape_stats.get("saved", 0)
         stats["errors"] += scrape_stats.get("errors", 0)
 
-        # Stage 1.5: Fetch Content (全文抓取)
-        print(f"\n{'─' * 40}")
-        print("📥 Stage 1.5: Fetch Content")
-        print(f"{'─' * 40}")
-        try:
-            from stages.fetch_content import run_fetch_content
-            fetch_stats = run_fetch_content(sb, config, table_suffix, snapshot_date=snapshot_date_str)
-            stats["fetched_content"] = fetch_stats.get("success", 0)
-        except Exception as e:
-            print(f"⚠️ Fetch Content 阶段异常（降级为无全文）: {e}")
+        if not scrape_only:
+            # Stage 1.5: Fetch Content (全文抓取)
+            print(f"\n{'─' * 40}")
+            print("📥 Stage 1.5: Fetch Content")
+            print(f"{'─' * 40}")
+            try:
+                from stages.fetch_content import run_fetch_content
+                fetch_stats = run_fetch_content(sb, config, table_suffix, snapshot_date=snapshot_date_str)
+                stats["fetched_content"] = fetch_stats.get("success", 0)
+            except Exception as e:
+                print(f"⚠️ Fetch Content 阶段异常（降级为无全文）: {e}")
 
-        # Stage 2: Process
-        print(f"\n{'─' * 40}")
-        print("🤖 Stage 2: Process")
-        print(f"{'─' * 40}")
-        from stages.process import run_process
-        process_stats = run_process(sb, config, table_suffix, snapshot_date=snapshot_date_str)
-        stats["processed"] = process_stats.get("success", 0)
-        stats["errors"] += process_stats.get("failed", 0)
+            # Stage 2: Process
+            print(f"\n{'─' * 40}")
+            print("🤖 Stage 2: Process")
+            print(f"{'─' * 40}")
+            from stages.process import run_process
+            process_stats = run_process(sb, config, table_suffix, snapshot_date=snapshot_date_str)
+            stats["processed"] = process_stats.get("success", 0)
+            stats["errors"] += process_stats.get("failed", 0)
 
-        # Stage 3a: Coarse Filter
-        print(f"\n{'─' * 40}")
-        print("🪓 Stage 3a: Coarse Filter")
-        print(f"{'─' * 40}")
-        from stages.coarse_filter import run_coarse_filter
-        coarse_stats = run_coarse_filter(sb, config, table_suffix)
-        candidates = coarse_stats.get("items", [])
-        stats["coarse_survived"] = coarse_stats.get("survived", 0)
+            # Stage 3a: Coarse Filter
+            print(f"\n{'─' * 40}")
+            print("🪓 Stage 3a: Coarse Filter")
+            print(f"{'─' * 40}")
+            from stages.coarse_filter import run_coarse_filter
+            coarse_stats = run_coarse_filter(sb, config, table_suffix)
+            candidates = coarse_stats.get("items", [])
+            stats["coarse_survived"] = coarse_stats.get("survived", 0)
 
-        # Stage 3b: Enrich (不可阻塞主管道：单 enricher 容错 + 总体超时)
-        print(f"\n{'─' * 40}")
-        print("🧩 Stage 3b: Enrich")
-        print(f"{'─' * 40}")
-        try:
-            from stages.enrich import run_enrich
-            enrich_stats = run_enrich(sb, config, candidates, table_suffix)
-            stats["enriched"] = enrich_stats.get("enrichments_written", 0)
-        except Exception as e:
-            print(f"⚠️ Enrich 阶段整体异常（降级为无 enrichment）: {e}")
+            # Stage 3b: Enrich (不可阻塞主管道：单 enricher 容错 + 总体超时)
+            print(f"\n{'─' * 40}")
+            print("🧩 Stage 3b: Enrich")
+            print(f"{'─' * 40}")
+            try:
+                from stages.enrich import run_enrich
+                enrich_stats = run_enrich(sb, config, candidates, table_suffix)
+                stats["enriched"] = enrich_stats.get("enrichments_written", 0)
+            except Exception as e:
+                print(f"⚠️ Enrich 阶段整体异常（降级为无 enrichment）: {e}")
 
-        # Stage 4: Rank
-        print(f"\n{'─' * 40}")
-        print("🏆 Stage 4: Rank")
-        print(f"{'─' * 40}")
-        from stages.rank import run_rank
-        rank_stats = run_rank(sb, config, table_suffix, candidates=candidates)
-        stats["ranked"] = rank_stats.get("display_count", 0)
+            # Stage 4: Rank
+            print(f"\n{'─' * 40}")
+            print("🏆 Stage 4: Rank")
+            print(f"{'─' * 40}")
+            from stages.rank import run_rank
+            rank_stats = run_rank(sb, config, table_suffix, candidates=candidates)
+            stats["ranked"] = rank_stats.get("display_count", 0)
 
         # Stage 5: Archive (only for production runs)
         if not table_suffix:
