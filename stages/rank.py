@@ -574,6 +574,33 @@ def run_rank(
             ai_score = score_by_id.get(item["item_id"])
             if ai_score is not None:
                 row["aha_index"] = round(ai_score / 100, 2)
+
+            # 注入 enrichment 数据到 extra
+            enrich = enrichment_map.get(item["item_id"]) or {}
+            enrichment = {}
+            comments = enrich.get("comments")
+            if comments:
+                enrichment["sentiment"] = comments.get("sentiment")
+                enrichment["comment_count"] = comments.get("comment_count")
+                enrichment["core_debate"] = comments.get("core_debate")
+                enrichment["top_insights"] = comments.get("top_insights")
+                enrichment["top_comments_raw"] = comments.get("top_comments_raw")
+                enrichment["alternatives"] = comments.get("alternatives")
+            eco = enrich.get("ecosystem")
+            if eco:
+                enrichment["maturity"] = eco.get("maturity")
+                enrichment["ecosystem_position"] = eco.get("ecosystem_position")
+                enrichment["unique_value"] = eco.get("unique_value")
+                enrichment["competitors"] = eco.get("competitors")
+            web = enrich.get("web_context")
+            if web:
+                enrichment["related_articles"] = web.get("related_articles")
+                enrichment["key_discussions"] = web.get("key_discussions")
+            if enrichment:
+                if not isinstance(row.get("extra"), dict):
+                    row["extra"] = {}
+                row["extra"]["enrichment"] = enrichment
+
             display_rows.append(row)
             rank += 1
 

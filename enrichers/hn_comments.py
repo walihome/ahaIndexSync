@@ -118,7 +118,7 @@ class HNCommentsEnricher(BaseEnricher):
                     "comment_count": len(comments),
                     "top_comments_raw": [
                         {"points": c["points"], "author": c["author"], "text": _strip_html(c["text"])[:300]}
-                        for c in top[:5]
+                        for c in top[:3]
                     ],
                     "llm_skipped": True,
                 },
@@ -169,6 +169,10 @@ class HNCommentsEnricher(BaseEnricher):
             "sentiment": ai.get("sentiment"),
             "core_debate": ai.get("core_debate"),
             "top_insights": ai.get("top_insights") or [],
+            "top_comments_raw": [
+                {"points": c["points"], "author": c["author"], "text": _strip_html(c["text"])[:300]}
+                for c in top[:3]
+            ],
             "alternatives": ai.get("alternatives") or [],
             "alternative_repos": alternative_repos,
             "valuable_links": ai.get("valuable_links") or [],

@@ -25,3 +25,8 @@ ON CONFLICT (name) DO NOTHING;
 INSERT INTO prompt_templates (name, stage, template, model, temperature, max_retries, request_interval) VALUES
 ('enrich_github_ecosystem', 'enrich', E'你是 AI 领域的开源生态观察员。给定目标 repo 及通过 topics 搜索到的同赛道 repo 列表，请判断其生态位置。\n\n目标 repo：\n名称：{repo_full_name}\nstars：{stars}\ntopics：{topics}\n描述：{description}\nREADME 片段：{readme_excerpt}\n\n同赛道搜索结果（最多 10 条）：\n{candidates_text}\n\n请输出 JSON：\n\ncompetitors:\n  - 长度 0-5，每项含 name（owner/repo）、stars（int）、comparison（30 字内与目标的差异）\n  - 只列真正同赛道的竞品，搜索结果中不相关的剔除\n\necosystem_position:\n  - 一句话（40 字内）定位该项目在生态中的角色\n\nmaturity:\n  - experimental / beta / production，三选一\n\nunique_value:\n  - 一句话（40 字内）说明相比竞品的独特价值\n\n只输出 JSON。', 'kimi-k2.5', 0.2, 2, 0.3)
 ON CONFLICT (name) DO NOTHING;
+
+-- Web Search 相关内容提取
+INSERT INTO prompt_templates (name, stage, template, model, temperature, max_retries, request_interval) VALUES
+('enrich_web_search', 'enrich', E'你是 AI 资讯的外部视角分析师。以下是通过搜索引擎找到的与某篇文章/论文相关的结果，请从中提取有价值的相关内容。\n\n文章标题：{title}\n来源：{source_name}\n\n搜索结果列表：\n{results_text}\n\n请输出 JSON：\n\nrelated_articles:\n  - 长度 0-5\n  - 每项含 title（标题）、url（链接）、snippet（摘要，50 字内）\n  - 选取与原文最相关、信息量最大的结果\n  - 排除原文本身\n\nkey_discussions:\n  - 长度 0-3\n  - 每项含 source（来源平台，如 Reddit/HN/Twitter/博客）、summary（讨论要点，30 字内）、url（链接）\n  - 仅保留有实质讨论的结果，排除纯转载\n\n只输出 JSON。', 'kimi-k2.5', 0.2, 2, 0.3)
+ON CONFLICT (name) DO NOTHING;

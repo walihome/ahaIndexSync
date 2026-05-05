@@ -19,6 +19,11 @@ DEFAULT_METRICS_CONFIG = {
         {"label": "🔁 转发", "key": "retweets", "format": "number"},
         {"label": "💬 回复", "key": "replies", "format": "number"},
     ],
+    "tweet_digest": [
+        {"label": "🐦 推文", "key": "tweet_count", "format": "number"},
+        {"label": "❤️ 点赞", "key": "likes", "format": "number"},
+        {"label": "🔁 转发", "key": "retweets", "format": "number"},
+    ],
     "news": [
         {"label": "▲ 热度", "key": "score", "format": "number"},
         {"label": "💬 评论", "key": "comments", "format": "number"},

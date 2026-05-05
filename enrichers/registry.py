@@ -31,7 +31,8 @@ def get_enricher(name: str) -> type | None:
 
 
 def _load_all():
-    # 顺序即优先级：纯 DB → HN API → GitHub API
+    # 顺序即优先级：纯 DB → HN API → GitHub API → Web Search
     import enrichers.cross_reference  # noqa: F401
     import enrichers.hn_comments  # noqa: F401
     import enrichers.github_ecosystem  # noqa: F401
+    import enrichers.web_search  # noqa: F401

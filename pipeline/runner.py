@@ -68,6 +68,17 @@ def run_pipeline(
         stats["scraped"] = scrape_stats.get("saved", 0)
         stats["errors"] += scrape_stats.get("errors", 0)
 
+        # Stage 1.3: Tweet Aggregate (推文聚合)
+        print(f"\n{'─' * 40}")
+        print("🐦 Stage 1.3: Tweet Aggregate")
+        print(f"{'─' * 40}")
+        try:
+            from stages.tweet_aggregate import run_tweet_aggregate
+            agg_stats = run_tweet_aggregate(sb, config, table_suffix, snapshot_date=snapshot_date)
+            stats["tweets_aggregated"] = agg_stats.get("aggregated", 0)
+        except Exception as e:
+            print(f"⚠️ Tweet Aggregate 阶段异常（降级为单独推文）: {e}")
+
         # Stage 1.5: Fetch Content (全文抓取)
         print(f"\n{'─' * 40}")
         print("📥 Stage 1.5: Fetch Content")
