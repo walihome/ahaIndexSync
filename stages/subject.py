@@ -177,10 +177,26 @@ class SubjectRegistry:
                 last_seen = current[0].get("last_seen_at") or snapshot_date
                 if snapshot_date > last_seen:
                     last_seen = snapshot_date
-                self.sb.table(self._subjects_table).update({
+                update_data = {
                     "mention_count": new_count,
                     "last_seen_at": last_seen,
-                }).eq("id", subject_id).execute()
+                }
+                # 更新 source_count（该 subject 被多少不同 source 提及过）
+                if source_name:
+                    try:
+                        distinct_sources = (
+                            self.sb.table(self._subject_mentions_table)
+                            .select("source_name")
+                            .eq("subject_id", subject_id)
+                            .execute()
+                            .data
+                            or []
+                        )
+                        source_count = len({r["source_name"] for r in distinct_sources if r.get("source_name")})
+                        update_data["source_count"] = source_count
+                    except Exception:
+                        pass
+                self.sb.table(self._subjects_table).update(update_data).eq("id", subject_id).execute()
         except Exception as e:
             print(f"  ⚠️ 更新 subject 计数失败 {subject_id}: {e}")
 

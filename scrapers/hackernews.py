@@ -1,10 +1,10 @@
 # scrapers/hackernews.py
 
 import requests
-import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone, timedelta
 from infra.models import BaseScraper, RawItem
+from infra.content_fetcher import enrich_body_text
 from scrapers.registry import register
 
 HN_API = "https://hacker-news.firebaseio.com/v0"
@@ -17,30 +17,19 @@ HEADERS = {
     )
 }
 
-try:
-    import trafilatura
-    _trafilatura_lock = threading.Lock()
-    HAS_TRAFILATURA = True
-except ImportError:
-    HAS_TRAFILATURA = False
-
 
 def _fetch_body(url: str, skip_domains: list[str]) -> str:
-    if not HAS_TRAFILATURA:
-        return ""
+    """调用统一的 content_fetcher 抓取正文。"""
     if any(d in url for d in skip_domains):
         return ""
     if "news.ycombinator.com" in url:
         return ""
-    try:
-        resp = requests.get(url, timeout=10, headers=HEADERS)
-        if resp.status_code != 200:
-            return ""
-        with _trafilatura_lock:
-            content = trafilatura.extract(resp.text, include_comments=False, include_tables=True, no_fallback=False)
-        return content or ""
-    except Exception:
-        return ""
+    result = enrich_body_text(
+        title="", original_url=url, source_name="HackerNews",
+        content_type="article", body_text="", extra={},
+        skip_domains=set(skip_domains),
+    )
+    return result.content
 
 
 @register("hackernews")

@@ -126,6 +126,14 @@ class CrossReferenceEnricher(BaseEnricher):
                 else:
                     trend = "occasional"
 
+        # 跨源聚合：同日不同 source 收录同一 subject
+        same_day_other_sources = [
+            {"source": m.get("source_name"), "score": m.get("score")}
+            for m in same_day
+            if m.get("source") and m.get("source") != item.get("source_name")
+        ]
+        cross_source_count = len(same_day_other_sources) + 1  # +1 for self
+
         data = {
             "subject_slug": slug,
             "subject_known": subj is not None,
@@ -134,6 +142,8 @@ class CrossReferenceEnricher(BaseEnricher):
             "historical_mentions": historical[:10],
             "same_day_cross_refs": same_day,
             "trend": trend,
+            "same_day_other_sources": same_day_other_sources,
+            "cross_source_count": cross_source_count,
         }
 
         return EnrichmentResult(

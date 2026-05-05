@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from supabase import Client
 from pipeline.config_loader import PipelineConfig
-from infra.db import get_pending_items, upsert_processed_item, table_names
+from infra.db import get_pending_items, upsert_processed_item, table_names, get_supabase
 from infra.llm import call_llm
 from infra.content_fetcher import enrich_body_text
 from infra.display_metrics import build_display_metrics
@@ -18,7 +18,19 @@ from infra.models import RawItem
 
 def _process_item(item: RawItem, config: PipelineConfig, api_key: str, processed_table: str) -> tuple[bool, str]:
     try:
-        item.body_text = enrich_body_text(item, config.skip_domains, config.fulltext_tags)
+        fetch_result = enrich_body_text(
+            title=item.title,
+            original_url=item.original_url,
+            source_name=item.source_name,
+            content_type=item.content_type,
+            body_text=item.body_text,
+            extra=item.extra,
+            skip_domains=config.skip_domains,
+            fulltext_tags=config.fulltext_tags,
+        )
+        item.body_text = fetch_result.content
+        item.content_source = fetch_result.source
+        item.content_quality = fetch_result.quality
 
         prompt_cfg = config.get_prompt("process_main")
         if not prompt_cfg:
@@ -42,6 +54,18 @@ def _process_item(item: RawItem, config: PipelineConfig, api_key: str, processed
 
         display_metrics = build_display_metrics(item, config.display_metrics or None)
         upsert_processed_item(item, ai_data, display_metrics, processed_table)
+
+        # 回写 content_source / content_quality 到 raw_items
+        try:
+            sb = get_supabase()
+            sb.table("raw_items").update({
+                "body_text": item.body_text,
+                "content_source": item.content_source,
+                "content_quality": item.content_quality,
+            }).eq("id", item.id).execute()
+        except Exception:
+            pass  # 非阻塞，不影响主流程
+
         return True, item.title
 
     except Exception as e:

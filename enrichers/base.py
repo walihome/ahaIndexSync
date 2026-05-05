@@ -22,6 +22,7 @@ class SubjectCandidate:
     metadata: dict = field(default_factory=dict)
     role: str = "mentioned"
     context: str = ""
+    confidence: float = 1.0
 
 
 @dataclass

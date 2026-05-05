@@ -24,6 +24,7 @@ import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from supabase import Client
 
@@ -44,11 +45,20 @@ class _ItemOutput:
     results: list[EnrichmentResult]
 
 
-def _enrich_one_item(item: dict, enrichers: list[BaseEnricher], deadline: float) -> _ItemOutput:
+def _enrich_one_item(
+    item: dict,
+    enrichers: list[BaseEnricher],
+    deadline: float,
+    existing: set[str] | None = None,
+) -> _ItemOutput:
     results: list[EnrichmentResult] = []
+    skip_types = existing or set()
     for enricher in enrichers:
         if time.monotonic() > deadline:
             break
+        # 跳过已有 enrichment_type
+        if enricher.enrichment_type in skip_types:
+            continue
         try:
             if not enricher.applies_to(item):
                 continue
@@ -91,6 +101,16 @@ def _persist_enrichments(sb: Client, rows: list[dict], suffix: str) -> int:
             except Exception as ee:
                 print(f"    ↳ 单条写入失败 {r['item_id']}/{r['enrichment_type']}: {ee}")
         return ok
+
+
+# enrichment_type → enrichment_level 映射
+_ENRICHMENT_LEVELS = {
+    "content_quality": 1,
+    "cross_reference": 2,
+    "comments": 2,
+    "ecosystem": 3,
+    "entity_extraction": 3,
+}
 
 
 def _register_primary_subjects(
@@ -152,6 +172,8 @@ def _register_candidate_subjects(
     for out in outputs:
         for r in out.results:
             for cand in r.subject_candidates:
+                if cand.confidence < 0.5:
+                    continue
                 sid = registry.upsert_subject(
                     slug=cand.slug,
                     type=cand.type,
@@ -200,6 +222,30 @@ def run_enrich(
     enrichers: list[BaseEnricher] = [cls(sb, config, api_key, table_suffix) for cls in enricher_classes]
     print(f"🧩 Enricher 列表: {[e.name for e in enrichers]}")
 
+    # 预取当天已有的 enrichment，用于跳过已处理的 item
+    ie_table, _, _, _ = enrich_table_names(table_suffix)
+    item_ids = [it["item_id"] for it in items]
+    existing_enrichments: dict[str, set[str]] = {}  # item_id → {enrichment_type, ...}
+    batch_size = 200
+    for i in range(0, len(item_ids), batch_size):
+        chunk = item_ids[i:i + batch_size]
+        try:
+            rows = (
+                sb.table(ie_table)
+                .select("item_id, enrichment_type")
+                .eq("snapshot_date", snapshot_date)
+                .in_("item_id", chunk)
+                .execute()
+                .data
+                or []
+            )
+        except Exception:
+            rows = []
+        for r in rows:
+            existing_enrichments.setdefault(r["item_id"], set()).add(r["enrichment_type"])
+    if existing_enrichments:
+        print(f"📋 已有 enrichment: {len(existing_enrichments)} 条 item 有历史数据")
+
     for e in enrichers:
         try:
             e.preload(items, snapshot_date)
@@ -214,7 +260,13 @@ def run_enrich(
 
     pool = ThreadPoolExecutor(max_workers=max_workers)
     try:
-        futures = {pool.submit(_enrich_one_item, it, enrichers, deadline): it for it in items}
+        futures = {
+            pool.submit(
+                _enrich_one_item, it, enrichers, deadline,
+                existing_enrichments.get(it["item_id"]),
+            ): it
+            for it in items
+        }
         for fut in as_completed(futures):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -233,6 +285,7 @@ def run_enrich(
         pool.shutdown(wait=False, cancel_futures=True)
 
     enrichment_rows: list[dict] = []
+    now_iso = datetime.now(timezone.utc).isoformat()
     for out in outputs:
         for r in out.results:
             enrichment_rows.append({
@@ -241,6 +294,8 @@ def run_enrich(
                 "enrichment_type": r.enrichment_type,
                 "enricher_name": r.enricher_name,
                 "data": r.data,
+                "enrichment_level": _ENRICHMENT_LEVELS.get(r.enrichment_type, 0),
+                "enriched_at": now_iso,
             })
     written = _persist_enrichments(sb, enrichment_rows, table_suffix)
 

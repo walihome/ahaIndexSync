@@ -162,6 +162,15 @@ def _format_enrichment_hint(
     """把 enrichment + subject 历史拼成几行 hint。没有就返回空列表。"""
     lines: list[str] = []
 
+    # 正文质量信号
+    cq = enrich_by_type.get("content_quality")
+    if cq:
+        quality = cq.get("overall_score", 0)
+        if quality >= 0.8:
+            lines.append("正文质量:高")
+        elif quality < 0.4:
+            lines.append("正文质量:低（可能信息不足）")
+
     comments = enrich_by_type.get("comments")
     if comments:
         sentiment = comments.get("sentiment")
@@ -235,6 +244,12 @@ def _format_enrichment_hint(
             bits.append(f"趋势:{trend}")
         if bits:
             lines.append("历史:" + "，".join(bits))
+        # 跨源共振信号
+        cross_count = cross.get("cross_source_count") or 0
+        if cross_count > 1:
+            other_sources = cross.get("same_day_other_sources") or []
+            source_names = [s.get("source", "?") for s in other_sources[:3]]
+            lines.append(f"多源共振:{cross_count}个源同时收录({', '.join(source_names)})")
 
     if subject_history:
         samples = []

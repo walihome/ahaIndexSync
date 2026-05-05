@@ -5,6 +5,7 @@ import re
 import requests
 from datetime import datetime, timedelta
 from infra.models import BaseScraper, RawItem
+from infra.content_fetcher import _fetch_readme_raw, _clean_readme, _fetch_languages
 from infra.oss import upload_images_to_oss, upload_image_to_oss
 from scrapers.registry import register
 
@@ -42,49 +43,6 @@ def _extract_readme_images(raw_text: str, owner: str, repo: str, max_images: int
         if len(result) >= max_images:
             break
     return result
-
-
-def _clean_readme(text: str) -> str:
-    text = re.sub(r'```[\s\S]*?```', '', text)
-    text = re.sub(r'`[^`]+`', '', text)
-    text = re.sub(r'!\[.*?\]\(.*?\)', '', text)
-    text = re.sub(r'^\s*\[.*?\]\(.*?\)\s*$', '', text, flags=re.MULTILINE)
-    text = re.sub(r'<[^>]+>', '', text)
-    text = re.sub(r'\n{3,}', '\n\n', text)
-    return text.strip()
-
-
-def _fetch_readme_raw(owner: str, repo: str, token: str) -> str:
-    try:
-        headers = {"Accept": "application/vnd.github.raw"}
-        if token:
-            headers["Authorization"] = f"token {token}"
-        resp = requests.get(
-            f"https://api.github.com/repos/{owner}/{repo}/readme",
-            headers=headers, timeout=10,
-        )
-        if resp.status_code != 200:
-            return ""
-        return resp.text
-    except Exception:
-        return ""
-
-
-def _fetch_languages(owner: str, repo: str, token: str) -> str:
-    try:
-        headers = {"Accept": "application/vnd.github+json"}
-        if token:
-            headers["Authorization"] = f"token {token}"
-        resp = requests.get(
-            f"https://api.github.com/repos/{owner}/{repo}/languages",
-            headers=headers, timeout=10,
-        )
-        if resp.status_code != 200:
-            return ""
-        langs = list(resp.json().keys())[:5]
-        return f"主要语言：{', '.join(langs)}\n\n" if langs else ""
-    except Exception:
-        return ""
 
 
 def _star_history_url(owner: str, repo: str) -> str:
@@ -143,13 +101,13 @@ class GitHubSearchEngine(BaseScraper):
                     owner = r["owner"]["login"]
                     repo = r["name"]
 
-                    readme_raw = _fetch_readme_raw(owner, repo, token)
+                    readme_raw = _fetch_readme_raw(owner, repo)
                     readme_images = _extract_readme_images(readme_raw, owner, repo, max_images, badge_patterns)
                     readme_images = upload_images_to_oss(readme_images)
                     readme_clean = _clean_readme(readme_raw) if readme_raw else ""
                     star_history = _star_history_url(owner, repo)
                     star_history = upload_image_to_oss(star_history) or star_history
-                    lang_prefix = _fetch_languages(owner, repo, token)
+                    lang_prefix = _fetch_languages(owner, repo)
                     body_text = lang_prefix + readme_clean if readme_clean else (r.get("description") or "")
 
                     items.append(RawItem(

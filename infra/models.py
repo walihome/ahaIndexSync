@@ -19,6 +19,8 @@ class RawItem:
     raw_metrics: dict = field(default_factory=dict)
     extra: dict = field(default_factory=dict)
     published_at: Optional[datetime] = None
+    content_source: str = "scraper"
+    content_quality: Optional[float] = None
 
     @property
     def id(self) -> str:
@@ -38,6 +40,8 @@ class RawItem:
             "raw_metrics": self.raw_metrics,
             "extra": self.extra,
             "published_at": self.published_at.isoformat() if self.published_at else None,
+            "content_source": self.content_source,
+            "content_quality": self.content_quality,
         }
 
 
