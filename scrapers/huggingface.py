@@ -18,6 +18,10 @@ DEFAULT_QUANT_SUFFIXES = ["-gguf", "-awq", "-gptq", "-fp8", "-int4", "-int8", "-
 DEFAULT_DERIV_SUFFIXES = ["-merge", "-dpo-", "-lora-"]
 
 
+def _oss_date_str(snapshot_date: str | None = None) -> str | None:
+    return snapshot_date.replace("-", "") if snapshot_date else None
+
+
 def _retry_get(url: str, params: dict, max_retries: int = 3, timeout: int = 15) -> requests.Response:
     """指数退避重试：1s / 3s / 9s"""
     headers = {"User-Agent": USER_AGENT}
@@ -50,6 +54,7 @@ class HuggingFacePapersEngine(BaseScraper):
         content_type = self.config.get("content_type", "hf_papers")
         max_retries = self.config.get("max_retries", 3)
         top_n = self.config.get("top_n", 3)
+        oss_date = _oss_date_str(self.snapshot_date)
         t0 = time.time()
 
         # 计算日期：先抓今天，如果今天没出再抓昨天
@@ -138,7 +143,7 @@ class HuggingFacePapersEngine(BaseScraper):
                 raw_thumbnail = entry.get("thumbnail", "")
                 thumbnail_url = ""
                 if raw_thumbnail and any(raw_thumbnail.lower().endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".webp", ".gif")):
-                    thumbnail_url = upload_image_to_oss(raw_thumbnail) or raw_thumbnail
+                    thumbnail_url = upload_image_to_oss(raw_thumbnail, oss_date) or raw_thumbnail
                 media_urls = entry.get("mediaUrls", [])
 
                 item = RawItem(
