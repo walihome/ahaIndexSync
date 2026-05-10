@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import re
 import json
-from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from supabase import Client
@@ -16,32 +15,52 @@ from infra.content_fetcher import enrich_body_text
 from infra.display_metrics import build_display_metrics
 from infra.models import RawItem, ContentRecord
 from infra.oss import upload_image_to_oss
+from infra.time_utils import get_today_str
 
 
 _IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".gif")
 _VIDEO_EXTS = (".mp4", ".webm", ".mov")
 
 
-def _extract_and_upload_media(item: RawItem, content: ContentRecord) -> None:
+def _media_list(value) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [u for u in value if isinstance(u, str) and u.strip()]
+
+
+def _oss_date_str(snapshot_date: str | None = None) -> str:
+    return (snapshot_date or get_today_str()).replace("-", "")
+
+
+def _should_skip_body_image(item: RawItem) -> bool:
+    # Repo README images are already collected by the GitHub scrapers. Jina's
+    # GitHub output often repeats the same README images with different raw URLs.
+    return item.content_type == "repo" and bool(_media_list(item.extra.get("readme_images")))
+
+
+def _extract_and_upload_media(item: RawItem, content: ContentRecord, snapshot_date: str | None = None) -> None:
     """从 enriched_body 提取非头像图片，与 extra.media_urls 合并后上传 OSS。"""
     urls: list[str] = []
 
     # 1. 从 enriched_body 提取
     body = content.enriched_body or ""
+    skip_body_images = _should_skip_body_image(item)
     if body:
         for alt, url in re.findall(r'!\[([^\]]*)\]\(([^)]+)\)', body):
             lower = url.lower()
             if "avatar" in lower or "logo" in lower:
                 continue
+            if skip_body_images and any(lower.endswith(ext) for ext in _IMAGE_EXTS):
+                continue
             if any(lower.endswith(ext) for ext in _IMAGE_EXTS + _VIDEO_EXTS):
                 urls.append(url)
 
     # 2. 合并 scraper 已有的 media_urls
-    existing = item.extra.get("media_urls") or []
+    existing = _media_list(item.extra.get("media_urls"))
     urls = list(dict.fromkeys(existing + urls))  # 去重保序
 
     # 3. 上传图片到 OSS（视频保留原始链接）
-    date_str = datetime.utcnow().strftime("%Y%m%d")
+    date_str = _oss_date_str(snapshot_date)
     oss_urls: list[str] = []
     for u in urls:
         if any(u.lower().endswith(ext) for ext in _VIDEO_EXTS):
@@ -53,7 +72,7 @@ def _extract_and_upload_media(item: RawItem, content: ContentRecord) -> None:
         item.extra["media_urls"] = oss_urls
 
 
-def _process_item(item: RawItem, content: ContentRecord, config: PipelineConfig, api_key: str, processed_table: str) -> tuple[bool, str]:
+def _process_item(item: RawItem, content: ContentRecord, config: PipelineConfig, api_key: str, processed_table: str, snapshot_date: str | None = None) -> tuple[bool, str]:
     try:
         item.body_text = enrich_body_text(item, config.skip_domains, config.fulltext_tags, content=content)
 
@@ -78,7 +97,7 @@ def _process_item(item: RawItem, content: ContentRecord, config: PipelineConfig,
             return False, item.title
 
         # 提取 enriched_body 中的非头像图片，合并到 media_urls 并上传 OSS
-        _extract_and_upload_media(item, content)
+        _extract_and_upload_media(item, content, snapshot_date=snapshot_date)
 
         display_metrics = build_display_metrics(item, config.display_metrics or None)
         upsert_processed_item(item, ai_data, display_metrics, processed_table)
@@ -106,7 +125,7 @@ def run_process(sb: Client, config: PipelineConfig, table_suffix: str = "", snap
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
-            executor.submit(_process_item, item, content, config, api_key, processed_table): item
+            executor.submit(_process_item, item, content, config, api_key, processed_table, snapshot_date): item
             for item, content in pending
         }
         for future in as_completed(futures):

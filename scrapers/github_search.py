@@ -91,6 +91,10 @@ def _star_history_url(owner: str, repo: str) -> str:
     return f"https://api.star-history.com/svg?repos={owner}/{repo}&type=Date"
 
 
+def _oss_date_str(snapshot_date: str | None = None) -> str | None:
+    return snapshot_date.replace("-", "") if snapshot_date else None
+
+
 @register("github_search")
 class GitHubSearchEngine(BaseScraper):
     def fetch(self) -> list[RawItem]:
@@ -105,6 +109,7 @@ class GitHubSearchEngine(BaseScraper):
         per_page = self.config.get("per_page", 30)
         badge_patterns = self.config.get("badge_patterns", _DEFAULT_BADGE_PATTERNS)
         max_images = self.config.get("max_readme_images", 3)
+        oss_date = _oss_date_str(self.snapshot_date)
 
         queries = self.config.get("queries", [
             {"q": f"created:>={last_week} stars:>100 topic:ai", "label": "AI topic"},
@@ -145,10 +150,10 @@ class GitHubSearchEngine(BaseScraper):
 
                     readme_raw = _fetch_readme_raw(owner, repo, token)
                     readme_images = _extract_readme_images(readme_raw, owner, repo, max_images, badge_patterns)
-                    readme_images = upload_images_to_oss(readme_images)
+                    readme_images = upload_images_to_oss(readme_images, oss_date)
                     readme_clean = _clean_readme(readme_raw) if readme_raw else ""
                     star_history = _star_history_url(owner, repo)
-                    star_history = upload_image_to_oss(star_history) or star_history
+                    star_history = upload_image_to_oss(star_history, oss_date) or star_history
                     lang_prefix = _fetch_languages(owner, repo, token)
                     body_text = lang_prefix + readme_clean if readme_clean else (r.get("description") or "")
 

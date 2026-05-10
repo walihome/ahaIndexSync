@@ -76,6 +76,7 @@ class BaseScraper:
     def __init__(self, name: str, config: dict):
         self.name = name
         self.config = config
+        self.snapshot_date: Optional[str] = None
 
     def fetch(self) -> list[RawItem]:
         raise NotImplementedError

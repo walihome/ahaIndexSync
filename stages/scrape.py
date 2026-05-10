@@ -40,6 +40,8 @@ def run_scrape(sb: Client, config: PipelineConfig, tracker: RunTracker, table_su
 
         try:
             engine = engine_cls(name=sc.name, config=sc.config)
+            if snapshot_date:
+                engine.snapshot_date = snapshot_date.isoformat()
 
             signal.signal(signal.SIGALRM, _timeout_handler)
             signal.alarm(timeout)
