@@ -15,7 +15,24 @@ from infra.db import table_names, enrich_table_names
 from infra.llm import _model_extra_body, _handle_invalid_temperature
 from infra.time_utils import today_str
 
-
+def _is_valid_display_row(row: dict) -> bool:
+    """校验 row 是否满足 display_items 表的 DB 约束。
+    
+    目前已知约束：
+    - aha_index ∈ [0, 1]（CHECK display_items_aha_check）
+    """
+    aha = row.get("aha_index")
+    if aha is not None:
+        try:
+            aha_f = float(aha)
+        except (TypeError, ValueError):
+            print(f"  ⚠️ 跳过 row：aha_index 非数值 ({aha!r}) - {row.get('title')!r}")
+            return False
+        if not (0.0 <= aha_f <= 1.0):
+            print(f"  ⚠️ 跳过 row：aha_index 越界 ({aha_f}) - {row.get('title')!r}")
+            return False
+    return True
+    
 def _build_display_row(item: dict, rank: int, today: str) -> dict:
     return {
         "processed_item_id": item["item_id"],
@@ -608,7 +625,13 @@ def run_rank(
         display_rows = _apply_tag_slots(display_rows, all_records, config.tag_slots, today)
 
     if display_rows:
-        sb.table(display_table).insert(display_rows).execute()
+        before = len(display_rows)
+        display_rows = [r for r in display_rows if _is_valid_display_row(r)]
+        skipped = before - len(display_rows)
+        if skipped:
+            print(f"  🛡️ 防御性过滤：跳过 {skipped}/{before} 条违反约束的 row")
+        if display_rows:
+            sb.table(display_table).insert(display_rows).execute()
 
     for item_id, update_data in audit_updates:
         try:
