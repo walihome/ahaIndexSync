@@ -514,7 +514,7 @@ def _apply_tag_slots(display_rows, all_records, tag_slots: list[TagSlotConfig], 
             new_row = _build_display_row(item, replaced["rank"], today)
             ai_score = tc.get("ai_score")
             if ai_score is not None:
-                new_row["aha_index"] = round(ai_score / 100, 2)
+                new_row["aha_index"] = round(max(0.0, min(1.0, ai_score / 100)), 2)
             display_rows.append(new_row)
             selected_ids.add(item["item_id"])
             print(f"  🏷️ [{ts.tag_name}] 保底替换: {item.get('processed_title', '')[:40]}")
@@ -590,7 +590,7 @@ def run_rank(
             row = _build_display_row(item, rank, today)
             ai_score = score_by_id.get(item["item_id"])
             if ai_score is not None:
-                row["aha_index"] = round(ai_score / 100, 2)
+                row["aha_index"] = round(max(0.0, min(1.0, ai_score / 100)), 2)
 
             # 注入 enrichment 数据到 extra
             enrich = enrichment_map.get(item["item_id"]) or {}
